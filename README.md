@@ -3,6 +3,9 @@
 This is a scripting system for the Last Millennium Reanalysis project,
 or [LMR](https://atmos.washington.edu/~hakim/lmr/).
 
+## Requirement
+Python 3
+
 ## Features
 
 + Run LMR with SLURM on a cluster with one command
