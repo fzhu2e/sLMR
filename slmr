@@ -70,7 +70,7 @@ def main():
 
     # update cfg with args
     if args.nthread is not None:
-        cfg_dict['core']['nthread'] = args.nthread
+        cfg_dict['core']['nthread'] = int(args.nthread)
 
     yml_path = make_yaml(work_dir, cfg_dict)
 
