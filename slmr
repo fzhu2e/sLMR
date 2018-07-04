@@ -91,7 +91,9 @@ def main():
 def make_yaml(work_dir, cfg_dict):
     ''' output a new YAML file
     '''
-    yml_path = os.path.join(work_dir, 'config_sLMR.yml')
+    nexp = cfg_dict['core']['nexp']
+    yml_path = os.path.join(work_dir, 'config_{}.yml'.format(nexp))
+
     with open(yml_path, 'w') as f:
         yaml.dump(cfg_dict, f, default_flow_style=False)
 
@@ -104,7 +106,7 @@ def make_sbatch(work_dir, cfg_dict, args, yml_path):
     '''
     nexp = cfg_dict['core']['nexp']
 
-    job_path = os.path.join(work_dir, 'run_sLMR.sh')
+    job_path = os.path.join(work_dir, 'run_{}.sh'.format(nexp))
 
     # create a new file
     with open(job_path, 'w') as f:
@@ -136,7 +138,7 @@ def make_sbatch(work_dir, cfg_dict, args, yml_path):
 #SBATCH --mail-type=ALL """)
 
     if args.nodename is not None:
-        sbatch.write(""""
+        sbatch.write("""
 #SBATCH --nodelist="""+args.nodename+""" """)
 
     sbatch.write("""
