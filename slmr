@@ -14,9 +14,9 @@ import subprocess
 def main():
     parser = argparse.ArgumentParser(
             description='''
-==============================================
- Run LMR on SLURM (Feng Zhu, fengzhu@usc.edu)
-----------------------------------------------
+=======================================================================
+ sLMR: run LMR with SLURM (Feng Zhu, fengzhu@usc.edu)
+-----------------------------------------------------------------------
 
  Usage example:
 
@@ -24,9 +24,9 @@ def main():
     # using config.yml with 72 hours time limit;
     # notification sent to fengzhu@usc.edu
 
-    ./run_lrm.py -c config.yml -n 4 -nn hungus -hr 72 -e fengzhu@usc.edu
+    slrm -c config.yml -n 4 -nn hungus -hr 72 -e fengzhu@usc.edu
 
-==============================================
+=======================================================================
             ''', formatter_class=argparse.RawTextHelpFormatter)
 
     parser.add_argument(
@@ -140,7 +140,7 @@ python -u LMR_wrapper.py """+yml_path+""" &> """+nexp+""".log """)
 
 def run_job(job_path):
     cmd = 'sbatch '+job_path
-    #  subprocess.call(cmd, shell=True)
+    subprocess.call(cmd, shell=True)
     print('sLMR >>> command submitted! >>>', cmd)
 
 if __name__ == '__main__':
