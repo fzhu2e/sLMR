@@ -14,19 +14,20 @@ import subprocess
 def main():
     parser = argparse.ArgumentParser(
             description='''
-=======================================================================
+===========================================================================
  sLMR: run LMR with SLURM (Feng Zhu, fengzhu@usc.edu)
------------------------------------------------------------------------
+---------------------------------------------------------------------------
 
  Usage example:
 
     # run LRM with 4 threads on the node "hungus"
     # using config.yml with 72 hours time limit;
-    # notification sent to fengzhu@usc.edu
+    # notification sent to fengzhu@usc.edu;
+    # the experiment is named as exp000
 
-    slrm -c config.yml -n 4 -nn hungus -hr 72 -e fengzhu@usc.edu
+    slrm -c config.yml -n 4 -nn hungus -hr 72 -e fengzhu@usc.edu -x exp000
 
-=======================================================================
+===========================================================================
             ''', formatter_class=argparse.RawTextHelpFormatter)
 
     parser.add_argument(
@@ -57,9 +58,14 @@ def main():
             help='email address; if not set, notification will be diabled')
 
     parser.add_argument(
+            '-x',
+            '--exp',
+            help='name of the experiment')
+
+    parser.add_argument(
             '-hr',
             '--hour',
-            help='running hours; if not set, will be chosen by SLURM')
+            help='running hours; if not set, use 72 hours')
 
     # parse the input command line
     args = parser.parse_args()
@@ -71,6 +77,9 @@ def main():
     # update cfg with args
     if args.nthread is not None:
         cfg_dict['core']['nthread'] = int(args.nthread)
+
+    if args.exp is not None:
+        cfg_dict['core']['nexp'] = args.exp
 
     yml_path = make_yaml(work_dir, cfg_dict)
 
@@ -108,6 +117,9 @@ def make_sbatch(work_dir, cfg_dict, args, yml_path):
     if args.hour is not None:
         sbatch.write("""
 #SBATCH --time="""+args.hour+""":00:00 """)
+    else:
+        sbatch.write("""
+#SBATCH --time=72:00:00 """)
 
     sbatch.write("""
 #SBATCH --nodes=1
