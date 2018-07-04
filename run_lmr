@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+
+# ==============================================================================
+#  Author: Feng Zhu (fengzhu@usc.edu)
+#  Date: 2018-07-03 15:20:58
+# ==============================================================================
+
+import argparse
+import yaml
+import os
+import subprocess
+
+
+def main():
+    parser = argparse.ArgumentParser(
+            description='''
+==============================================
+ Run LMR on SLURM (Feng Zhu, fengzhu@usc.edu)
+----------------------------------------------
+
+ Usage example:
+
+    # run LRM with 4 threads on the node "hungus"
+    # using config.yml with 72 hours time limit;
+    # notification sent to fengzhu@usc.edu
+
+    ./run_lrm.py -c config.yml -n 4 -nn hungus -hr 72 -e fengzhu@usc.edu
+
+==============================================
+            ''', formatter_class=argparse.RawTextHelpFormatter)
+
+    parser.add_argument(
+            '-v',
+            '--version',
+            action='version',
+            version='%(prog)s version: 0.01'
+            )
+
+    parser.add_argument(
+            '-c',
+            '--config',
+            required=True, help='path of the config YAML file')
+
+    parser.add_argument(
+            '-n',
+            '--nthread',
+            help='number of threads; if not set, will use the setting in the YAML file')
+
+    parser.add_argument(
+            '-nn',
+            '--nodename',
+            help='node name; if not set, will be chosen by SLURM')
+
+    parser.add_argument(
+            '-e',
+            '--email',
+            help='email address; if not set, notification will be diabled')
+
+    parser.add_argument(
+            '-hr',
+            '--hour',
+            help='running hours; if not set, will be chosen by SLURM')
+
+    # parse the input command line
+    args = parser.parse_args()
+
+    cfg_path = os.path.abspath(args.config)
+    cfg_dict = yaml.load(open(cfg_path))
+    work_dir = os.path.dirname(cfg_path)
+
+    # update cfg with args
+    if args.nthread is not None:
+        cfg_dict['core']['nthread'] = args.nthread
+
+    yml_path = make_yaml(work_dir, cfg_dict)
+
+    job_path = make_sbatch(work_dir, cfg_dict, args, yml_path)
+
+    run_job(job_path)
+
+
+def make_yaml(work_dir, cfg_dict):
+    ''' output a new YAML file
+    '''
+    yml_path = os.path.join(work_dir, 'config_sLMR.yml')
+    with open(yml_path, 'w') as f:
+        yaml.dump(cfg_dict, f, default_flow_style=False)
+
+    print('sLMR >>> YAML config file created!')
+    return yml_path
+
+
+def make_sbatch(work_dir, cfg_dict, args, yml_path):
+    ''' output a shell script for sbatch
+    '''
+    nexp = cfg_dict['core']['nexp']
+
+    job_path = os.path.join(work_dir, 'run_sLMR.sh')
+
+    # create a new file
+    with open(job_path, 'w') as f:
+        f.write('')
+
+    sbatch = open(job_path, 'a')
+    sbatch.write("""#!/bin/bash
+            """)
+
+    if args.hour is not None:
+        sbatch.write("""
+#SBATCH --time="""+args.hour+""":00:00 """)
+
+    sbatch.write("""
+#SBATCH --nodes=1
+#SBATCH --job-name=LMR
+#SBATCH --mem=30000 """)
+
+    if args.nthread is not None:
+        sbatch.write("""
+#SBATCH --ntasks="""+args.nthread+""" """)
+
+    if args.email is not None:
+        sbatch.write("""
+#SBATCH --mail-user="""+args.email+"""
+#SBATCH --mail-type=ALL """)
+
+    if args.nodename is not None:
+        sbatch.write(""""
+#SBATCH --nodelist="""+args.nodename+""" """)
+
+    sbatch.write("""
+
+python -u LMR_wrapper.py """+yml_path+""" &> """+nexp+""".log """)
+
+    sbatch.close()
+
+    print('sLMR >>> sbatch job file created!')
+
+    return job_path
+
+
+def run_job(job_path):
+    cmd = 'sbatch '+job_path
+    #  subprocess.call(cmd, shell=True)
+    print('sLMR >>> command submitted! >>>', cmd)
+
+if __name__ == '__main__':
+    main()
