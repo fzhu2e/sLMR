@@ -8,7 +8,7 @@ Python 3
 
 ## Features
 
-+ Run LMR with SLURM on a cluster with one command
++ Run LMR with Slurm on a cluster with one command
 
 ## How to install
 ```bash

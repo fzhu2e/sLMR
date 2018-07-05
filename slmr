@@ -10,22 +10,27 @@ import yaml
 import os
 import subprocess
 
+#  DEBUG = True
+DEBUG = False
+
 
 def main():
     parser = argparse.ArgumentParser(
             description='''
 ===========================================================================
- sLMR: run LMR with SLURM (Feng Zhu, fengzhu@usc.edu)
+ sLMR: run LMR with Slurm (Feng Zhu, fengzhu@usc.edu)
 ---------------------------------------------------------------------------
 
  Usage example:
 
-    # run LRM with 4 threads on the node "hungus"
-    # using config.yml with 72 hours time limit;
-    # notification sent to fengzhu@usc.edu;
-    # the experiment is named as exp000
+    slrm -c config.yml -n 4 -nn hungus -rp 0 2000 -e slmr@gmal.com -x test_ccsm4 -f
 
-    slrm -c config.yml -n 4 -nn hungus -hr 72 -e fengzhu@usc.edu -x exp000
+    # -c config.yml: using "config.yml" as a configuration template
+    # -n 4 -nn hungus: run LRM with 4 threads on the node "hungus"
+    # -rp 0 2000: reconstruction period to be 0-2000
+    # -e slmr@gmail.com: notification will be sent to slmr@gmail.com
+    # -x test_ccsm4: the experiment is named as "test_ccsm4"
+    # -f: turn on f2py mode
 
 ===========================================================================
             ''', formatter_class=argparse.RawTextHelpFormatter)
@@ -42,25 +47,56 @@ def main():
             '--config',
             required=True, help='path of the config YAML file')
 
+    # for LMR
+    parser.add_argument(
+            '-x',
+            '--exp',
+            help='name of the experiment')
+
+    parser.add_argument(
+            '-ne',
+            '--nens',
+            help='number of ensemble members; if not set, will use the setting in the YAML file')
+
     parser.add_argument(
             '-n',
             '--nthread',
             help='number of threads; if not set, will use the setting in the YAML file')
 
     parser.add_argument(
-            '-nn',
-            '--nodename',
-            help='node name; if not set, will be chosen by SLURM')
+            '-f',
+            '--use_f2py',
+            action='store_true',
+            help='use f2py lib or not; if not set, will use the setting in the YAML file')
 
     parser.add_argument(
-            '-e',
+            '-s',
+            '--seed',
+            help='random seed number; if not set, will use the setting in the YAML file')
+
+    parser.add_argument(
+            '-rp',
+            '--recon_period', nargs='*',
+            help=''' time span for reconstruction in the form of start end,
+            e.g., "-rp 0 2000" (if more than two numbers are given, only the first two are valid);
+            if not set, will use the setting in the YAML file
+            ''')
+
+    # for Slurm
+    parser.add_argument(
+            '-nn',
+            '--nodename',
+            help='node name; if not set, will be chosen by Slurm')
+
+    parser.add_argument(
+            '-em',
             '--email',
             help='email address; if not set, notification will be diabled')
 
     parser.add_argument(
-            '-x',
-            '--exp',
-            help='name of the experiment')
+            '-jn',
+            '--jobname',
+            help='name of the Slurm job')
 
     parser.add_argument(
             '-hr',
@@ -81,11 +117,26 @@ def main():
     if args.exp is not None:
         cfg_dict['core']['nexp'] = args.exp
 
+    if args.nens is not None:
+        cfg_dict['core']['nens'] = int(args.nens)
+
+    if args.nens is not None:
+        cfg_dict['core']['seed'] = int(args.seed)
+
+    if args.recon_period is not None:
+        cfg_dict['core']['recon_period'] = (int(args.recon_period[0]), int(args.recon_period[1]))
+
+    if args.use_f2py:
+        cfg_dict['core']['use_f2py'] = True
+    else:
+        cfg_dict['core']['use_f2py'] = False
+
     yml_path = make_yaml(work_dir, cfg_dict)
 
     job_path = make_sbatch(work_dir, cfg_dict, args, yml_path)
 
-    run_job(job_path)
+    if not DEBUG:
+        run_job(job_path)
 
 
 def make_yaml(work_dir, cfg_dict):
@@ -97,7 +148,7 @@ def make_yaml(work_dir, cfg_dict):
     with open(yml_path, 'w') as f:
         yaml.dump(cfg_dict, f, default_flow_style=False)
 
-    print('sLMR >>> YAML config file created!')
+    print('sLMR >>> Configuration created! >>>', yml_path)
     return yml_path
 
 
@@ -114,7 +165,8 @@ def make_sbatch(work_dir, cfg_dict, args, yml_path):
 
     sbatch = open(job_path, 'a')
     sbatch.write("""#!/bin/bash
-            """)
+#SBATCH --nodes=1
+#SBATCH --mem=30000 """)
 
     if args.hour is not None:
         sbatch.write("""
@@ -123,10 +175,12 @@ def make_sbatch(work_dir, cfg_dict, args, yml_path):
         sbatch.write("""
 #SBATCH --time=72:00:00 """)
 
-    sbatch.write("""
-#SBATCH --nodes=1
-#SBATCH --job-name=LMR
-#SBATCH --mem=30000 """)
+    if args.jobname is not None:
+        sbatch.write("""
+#SBATCH --job-name="""+args.jobname+""" """)
+    else:
+        sbatch.write("""
+#SBATCH --job-name=LMR """)
 
     if args.nthread is not None:
         sbatch.write("""
@@ -147,7 +201,7 @@ python -u LMR_wrapper.py """+yml_path+""" &> """+nexp+""".log """)
 
     sbatch.close()
 
-    print('sLMR >>> sbatch job file created!')
+    print('sLMR >>> Slurm job created! >>>', job_path)
 
     return job_path
 
@@ -155,7 +209,7 @@ python -u LMR_wrapper.py """+yml_path+""" &> """+nexp+""".log """)
 def run_job(job_path):
     cmd = 'sbatch '+job_path
     subprocess.call(cmd, shell=True)
-    print('sLMR >>> command submitted! >>>', cmd)
+    print('sLMR >>> Job submitted! >>> DONE')
 
 if __name__ == '__main__':
     main()
