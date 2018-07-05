@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name='slmr',
-    version='0.1.0',
+    version='0.1.1',
     description="A scripting system for the Last Millennium Reanalysis (LMR) project.",
     long_description=long_description,
     long_description_content_type="text/markdown",
