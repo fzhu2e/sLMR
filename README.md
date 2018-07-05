@@ -22,14 +22,19 @@ We need to prepare all the data and configurations required for LMR first,
 then we are able to run LMR with [Slurm](https://slurm.schedmd.com/) on a cluster
 with just one command line:
 ```bash
-slrm -c config.yml -n 4 -nn hungus -rp 0 2000 -e slmr@gmal.com -x test_ccsm4 -f
+slrm -c config.yml -n 4 -nn hungus -rp 0 2000 -em slmr@gmail.com -x test_ccsm4 -f
 
 # -c config.yml: use "config.yml" as a configuration template
 # -n 4 -nn hungus: run LRM with 4 threads on the node "hungus"
 # -rp 0 2000: reconstruction period to be from 0 to 2000 C.E.
-# -e slmr@gmail.com: notification will be sent to "slmr@gmail.com"
+# -em slmr@gmail.com: notification will be sent to "slmr@gmail.com"
 # -x test_ccsm4: the experiment is named as "test_ccsm4"
 # -f: turn on f2py mode
+ ```
+
+ For more options, please check
+ ```bash
+ slmr -h
  ```
 
 ## License

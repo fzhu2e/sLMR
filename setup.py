@@ -1,11 +1,12 @@
 from setuptools import setup, find_packages
+import slmr
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setup(
     name='slmr',
-    version='0.1.1',
+    version=slmr.__version__,
     description="A scripting system for the Last Millennium Reanalysis (LMR) project.",
     long_description=long_description,
     long_description_content_type="text/markdown",
