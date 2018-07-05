@@ -186,6 +186,9 @@ def make_sbatch(work_dir, cfg_dict, args, yml_path):
     if args.nthread is not None:
         sbatch.write("""
 #SBATCH --ntasks="""+args.nthread+""" """)
+    else:
+        sbatch.write("""
+#SBATCH --ntasks=1""")
 
     if args.email is not None:
         sbatch.write("""
