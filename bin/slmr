@@ -24,14 +24,13 @@ def main():
 
  Usage example:
 
-    slrm -c config.yml -n 4 -nn hungus -rp 0 2000 -em slmr@gmail.com -x test_ccsm4 -f
+    slrm -c config.yml -n 4 -nn hungus -rp 0 2000 -em slmr@gmail.com -x test_ccsm4
 
     # -c config.yml: using "config.yml" as a configuration template
     # -n 4 -nn hungus: run LRM with 4 threads on the node "hungus"
     # -rp 0 2000: reconstruction period to be 0-2000
     # -em slmr@gmail.com: notification will be sent to slmr@gmail.com
     # -x test_ccsm4: the experiment is named as "test_ccsm4"
-    # -f: turn on f2py mode
 
 ========================================================================================
             ''', formatter_class=argparse.RawTextHelpFormatter)
@@ -63,12 +62,6 @@ def main():
             '-n',
             '--nthread',
             help='number of threads; if not set, will use the setting in the YAML file')
-
-    parser.add_argument(
-            '-f',
-            '--use_f2py',
-            action='store_true',
-            help='use f2py lib or not; if not set, will use the setting in the YAML file')
 
     parser.add_argument(
             '-s',
@@ -127,10 +120,6 @@ def main():
     if args.recon_period is not None:
         cfg_dict['core']['recon_period'] = (int(args.recon_period[0]), int(args.recon_period[1]))
 
-    if args.use_f2py:
-        cfg_dict['core']['use_f2py'] = True
-    else:
-        cfg_dict['core']['use_f2py'] = False
 
     yml_path = make_yaml(work_dir, cfg_dict)
 
