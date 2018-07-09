@@ -114,7 +114,7 @@ def main():
     if args.nens is not None:
         cfg_dict['core']['nens'] = int(args.nens)
 
-    if args.nens is not None:
+    if args.seed is not None:
         cfg_dict['core']['seed'] = int(args.seed)
 
     if args.recon_period is not None:
