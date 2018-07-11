@@ -76,6 +76,14 @@ def main():
             if not set, will use the setting in the YAML file
             ''')
 
+    parser.add_argument(
+            '-ir',
+            '--iter_range', nargs='*',
+            help=''' Monte-Carlo iterations
+            e.g., "-ir 0 10" (if more than two numbers are given, only the first two are valid);
+            if not set, will use the setting in the YAML file
+            ''')
+
     # for Slurm
     parser.add_argument(
             '-nn',
@@ -119,6 +127,9 @@ def main():
 
     if args.recon_period is not None:
         cfg_dict['core']['recon_period'] = (int(args.recon_period[0]), int(args.recon_period[1]))
+
+    if args.iter_range is not None:
+        cfg_dict['wrapper']['iter_range'] = (int(args.iter_range[0]), int(args.iter_range[1]))
 
 
     yml_path = make_yaml(work_dir, cfg_dict)
