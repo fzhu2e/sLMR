@@ -60,7 +60,7 @@ def main():
 
     parser.add_argument(
             '-n',
-            '--nthread',
+            '--nthreads',
             help='number of threads; if not set, will use the setting in the YAML file')
 
     parser.add_argument(
@@ -113,8 +113,8 @@ def main():
     work_dir = os.path.dirname(cfg_path)
 
     # update cfg with args
-    if args.nthread is not None:
-        cfg_dict['core']['nthread'] = int(args.nthread)
+    if args.nthreads is not None:
+        cfg_dict['core']['nthreads'] = int(args.nthreads)
 
     if args.exp is not None:
         cfg_dict['core']['nexp'] = args.exp
@@ -183,9 +183,9 @@ def make_sbatch(work_dir, cfg_dict, args, yml_path):
         sbatch.write("""
 #SBATCH --job-name=LMR """)
 
-    if args.nthread is not None:
+    if args.nthreads is not None:
         sbatch.write("""
-#SBATCH --ntasks="""+args.nthread+""" """)
+#SBATCH --ntasks="""+args.nthreads+""" """)
     else:
         sbatch.write("""
 #SBATCH --ntasks=1""")
