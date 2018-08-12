@@ -1,4 +1,4 @@
 #!/usr/bin/env python3
 __author__ = 'Feng Zhu'
 __email__ = 'fengzhu@usc.edu'
-__version__ = '0.1.9'
+__version__ = '0.2.0'

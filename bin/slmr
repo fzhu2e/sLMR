@@ -9,22 +9,24 @@ import argparse
 import yaml
 import os
 import subprocess
+import glob
+import shutil
 import slmr
 
-#  DEBUG = True
-DEBUG = False
+DEBUG = True
+#  DEBUG = False
 
 
 def main():
     parser = argparse.ArgumentParser(
             description='''
 ========================================================================================
- sLMR: run LMR with Slurm (Feng Zhu, fengzhu@usc.edu)
+ sLMR: a scripting system for LMR (Feng Zhu, fengzhu@usc.edu)
 ----------------------------------------------------------------------------------------
 
- Usage example:
+ Usage example of running LMR with Slurm:
 
-    slrm -c config.yml -n 4 -nn hungus -rp 0 2000 -em slmr@gmail.com -x test_ccsm4
+    slrm job -c config.yml -n 4 -nn hungus -rp 0 2000 -em slmr@gmail.com -x test_ccsm4
 
     # -c config.yml: using "config.yml" as a configuration template
     # -n 4 -nn hungus: run LRM with 4 threads on the node "hungus"
@@ -42,33 +44,46 @@ def main():
             version='%(prog)s version: {}'.format(slmr.__version__)
             )
 
-    parser.add_argument(
+    subparsers = parser.add_subparsers(help='running mode')
+    subparsers.dest = 'mode'
+
+    parser_job = subparsers.add_parser('job', help='SLURM job submitting')
+    parser_pp = subparsers.add_parser('pp', help='post-processing')
+    pp_subparsers = parser_pp.add_subparsers(help='post-processing tasks')
+    pp_subparsers.dest = 'task'
+
+    parser_pp_pick_files = pp_subparsers.add_parser('pick_files', help='pick files')
+
+    #===================================================================================
+    # SLURM job submitting
+    #===================================================================================
+    parser_job.add_argument(
             '-c',
             '--config',
             required=True, help='path of the config YAML file')
 
     # for LMR
-    parser.add_argument(
+    parser_job.add_argument(
             '-x',
             '--exp',
             help='name of the experiment')
 
-    parser.add_argument(
+    parser_job.add_argument(
             '-ne',
             '--nens',
             help='number of ensemble members; if not set, will use the setting in the YAML file')
 
-    parser.add_argument(
+    parser_job.add_argument(
             '-n',
             '--nthreads',
             help='number of threads; if not set, will use the setting in the YAML file')
 
-    parser.add_argument(
+    parser_job.add_argument(
             '-s',
             '--seed',
             help='random seed number; if not set, will use the setting in the YAML file')
 
-    parser.add_argument(
+    parser_job.add_argument(
             '-rp',
             '--recon_period', nargs='*',
             help=''' time span for reconstruction in the form of start end,
@@ -76,7 +91,7 @@ def main():
             if not set, will use the setting in the YAML file
             ''')
 
-    parser.add_argument(
+    parser_job.add_argument(
             '-ir',
             '--iter_range', nargs='*',
             help=''' Monte-Carlo iterations
@@ -85,61 +100,94 @@ def main():
             ''')
 
     # for Slurm
-    parser.add_argument(
+    parser_job.add_argument(
             '-nn',
             '--nodename',
             help='node name; if not set, will be chosen by Slurm')
 
-    parser.add_argument(
+    parser_job.add_argument(
             '-em',
             '--email',
             help='email address; if not set, notification will be diabled')
 
-    parser.add_argument(
+    parser_job.add_argument(
             '-jn',
             '--jobname',
             help='name of the Slurm job')
 
-    parser.add_argument(
+    parser_job.add_argument(
             '-hr',
             '--hour',
             help='running hours; if not set, use 72 hours')
 
+
+    #===================================================================================
+    # post-processing
+    #===================================================================================
+    parser_pp_pick_files.add_argument(
+            '-f',
+            '--filename',
+            required=True,
+            help='pick files with the specified filename')
+
+    parser_pp_pick_files.add_argument(
+            '-d',
+            '--directories', nargs='*',
+            required=True,
+            help='pick files from specified directories')
+
+    parser_pp_pick_files.add_argument(
+            '-s',
+            '--saveto',
+            required=True,
+            help='the destination directory to store the found files')
+
+    #===================================================================================
+    # Executing
+    #===================================================================================
+
     # parse the input command line
     args = parser.parse_args()
 
-    cfg_path = os.path.abspath(args.config)
-    cfg_dict = yaml.load(open(cfg_path))
-    work_dir = os.path.dirname(cfg_path)
+    if args.mode == 'job':
+        cfg_path = os.path.abspath(args.config)
+        cfg_dict = yaml.load(open(cfg_path))
+        work_dir = os.path.dirname(cfg_path)
 
-    # update cfg with args
-    if args.nthreads is not None:
-        cfg_dict['core']['nthreads'] = int(args.nthreads)
+        # update cfg with args
+        if args.nthreads is not None:
+            cfg_dict['core']['nthreads'] = int(args.nthreads)
 
-    if args.exp is not None:
-        cfg_dict['core']['nexp'] = args.exp
+        if args.exp is not None:
+            cfg_dict['core']['nexp'] = args.exp
 
-    if args.nens is not None:
-        cfg_dict['core']['nens'] = int(args.nens)
+        if args.nens is not None:
+            cfg_dict['core']['nens'] = int(args.nens)
 
-    if args.seed is not None:
-        cfg_dict['core']['seed'] = int(args.seed)
+        if args.seed is not None:
+            cfg_dict['core']['seed'] = int(args.seed)
 
-    if args.recon_period is not None:
-        cfg_dict['core']['recon_period'] = (int(args.recon_period[0]), int(args.recon_period[1]))
+        if args.recon_period is not None:
+            cfg_dict['core']['recon_period'] = (int(args.recon_period[0]), int(args.recon_period[1]))
 
-    if args.iter_range is not None:
-        cfg_dict['wrapper']['iter_range'] = (int(args.iter_range[0]), int(args.iter_range[1]))
-
-
-    yml_path = make_yaml(work_dir, cfg_dict)
-
-    job_path = make_sbatch(work_dir, cfg_dict, args, yml_path)
-
-    if not DEBUG:
-        run_job(job_path)
+        if args.iter_range is not None:
+            cfg_dict['wrapper']['iter_range'] = (int(args.iter_range[0]), int(args.iter_range[1]))
 
 
+        yml_path = make_yaml(work_dir, cfg_dict)
+
+        job_path = make_sbatch(work_dir, cfg_dict, args, yml_path)
+
+        if not DEBUG:
+            run_job(job_path)
+
+    elif args.mode == 'pp':
+        if args.task == 'pick_files':
+            pick_files(args.filename, args.directories, args.saveto)
+
+#===================================================================================
+# SLURM job submitting
+#===================================================================================
 def make_yaml(work_dir, cfg_dict):
     ''' output a new YAML file
     '''
@@ -214,6 +262,29 @@ def run_job(job_path):
     cmd = 'sbatch '+job_path
     subprocess.call(cmd, shell=True)
     print('sLMR >>> Job submitted! >>> DONE')
+
+
+#===================================================================================
+# post-processing
+#===================================================================================
+def pick_files(filename, directories, saveto):
+    if not os.path.exists(saveto):
+        os.makedirs(saveto)
+
+    nfile = 0
+    for directory in directories:
+        path = os.path.join(directory, './*/', filename)
+        res = glob.glob(path)
+        for f in res:
+            nfile += 1
+            save_filename = '{}_{:04d}'.format(filename, nfile)
+            save_path = os.path.join(saveto, save_filename)
+            shutil.copy(f, save_path)
+            print('sLMR >>> {} -> {}'.format(f, save_path))
+
+    print('sLMR >>> Found {} files named as: {} '.format(nfile, filename))
+    print('sLMR >>> Saving them to: {} >>> DONE'.format(saveto))
+
 
 if __name__ == '__main__':
     main()
