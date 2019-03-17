@@ -8,6 +8,7 @@ import functools
 import xarray as xr
 from datetime import datetime
 import random
+import pandas as pd
 
 
 def timeit(func):
@@ -35,7 +36,7 @@ def update_nested_dict(d, other):
         return d
 
 
-def load_netcdf(filepath):
+def load_netcdf(filepath, verbose=False):
     ''' Load the model output in .nc
         Timeseries will be annualized and anomaly will be calculated.
     '''
@@ -78,7 +79,8 @@ def load_netcdf(filepath):
         pass
 
     datadict = {}
-    print(f'Reading file: {filepath}')
+    if verbose:
+        print(f'Reading file: {filepath}')
     ds = xr.open_dataset(filepath)
     ds_ann = ds.groupby('time.year').mean('time')
     time_yrs = np.asarray(
@@ -102,8 +104,9 @@ def load_netcdf(filepath):
         climo_xr = ds_ann[v].mean(dim='year')
         climo = np.asarray(climo_xr)
         value = np.asarray(ds_ann[v] - climo_xr)
-        print('Anomalies provided as the prior: Removing the temporal mean (for every gridpoint)...')
-        print(f'{v}: Global(monthly): mean={np.nanmean(value)}, std-dev={np.nanstd(value)}')
+        if verbose:
+            print('Anomalies provided as the prior: Removing the temporal mean (for every gridpoint)...')
+            print(f'{v}: Global(monthly): mean={np.nanmean(value)}, std-dev={np.nanstd(value)}')
 
         for dim in dims:
             if dim == 'time':
@@ -124,7 +127,7 @@ def load_netcdf(filepath):
     return datadict
 
 
-def populate_ensemble(datadict, cfg, iter_ind=0, verbose=False):
+def populate_ensemble(datadict, cfg, seed, verbose=False):
     ''' Populate the prior ensemble from gridded model/analysis data
     '''
     state_vect_info = {}
@@ -156,12 +159,12 @@ def populate_ensemble(datadict, cfg, iter_ind=0, verbose=False):
 
     Xb = np.zeros((Nx, cfg.core.nens))
 
-    random.seed(cfg.wrapper.multi_seed[iter_ind])
+    random.seed(seed)
     ind_ens = random.sample(list(range(ntime)), cfg.core.nens)
 
     if verbose:
         print(f'shape of Xb: ({Nx} x {cfg.core.nens})')
-        print('seed=', cfg.wrapper.multi_seed[iter_ind])
+        print('seed=', seed)
         print('sampled inds=', ind_ens)
 
     Xb_coords = np.empty((Nx, 2))
@@ -199,4 +202,72 @@ def populate_ensemble(datadict, cfg, iter_ind=0, verbose=False):
         else:
             Xb_res = Xb
 
-    return Xb_res
+    return Xb_res, ind_ens, Xb_coords
+
+
+def get_proxy(cfg, proxies_df_filepath, metadata_df_filepath):
+    db_proxies = pd.read_pickle(proxies_df_filepath)
+    db_metadata = pd.read_pickle(metadata_df_filepath)
+
+    proxy_db_cfg = {
+        'LMRdb': cfg.proxies.LMRdb,
+    }
+    db_name = cfg.proxies.use_from[0]
+
+    all_proxy_ids = []
+    for proxy_order in proxy_db_cfg[db_name].proxy_order:
+        archive = proxy_order.split('_', 1)[0]
+
+        for measure in proxy_db_cfg[db_name].proxy_assim2[proxy_order]:
+            archive_mask = db_metadata['Archive type'] == archive
+            measure_mask = db_metadata['Proxy measurement'] == measure
+
+            for proxy_resolution in proxy_db_cfg[db_name].proxy_resolution:
+                resolution_mask = db_metadata['Resolution (yr)'] == proxy_resolution
+
+                proxies = db_metadata['Proxy ID'][archive_mask & measure_mask & resolution_mask]
+                all_proxy_ids += proxies.tolist()
+
+    Proxy = collections.namedtuple(
+        'Proxy',
+        ['id', 'start_yr', 'end_yr', 'lat', 'lon', 'elev', 'seasonality', 'values', 'time']
+    )
+
+    all_proxies = []
+    start, finish = cfg.core.recon_period
+    for site in all_proxy_ids:
+        site_meta = db_metadata[db_metadata['Proxy ID'] == site]
+        start_yr = site_meta['Youngest (C.E.)'].iloc[0]
+        end_yr = site_meta['Oldest (C.E.)'].iloc[0]
+        lat = site_meta['Lat (N)'].iloc[0]
+        lon = site_meta['Lon (E)'].iloc[0]
+        elev = site_meta['Elev'].iloc[0]
+        seasonality = site_meta['Seasonality'].iloc[0]
+        site_data = db_proxies[site]
+        values = site_data[(site_data.index >= start) & (site_data.index <= finish)]
+        values = values[values.notnull()]
+        if len(values) == 0:
+            raise ValueError('ERROR: No obs in specified time range!')
+        if proxy_db_cfg[db_name].proxy_timeseries_kind == 'anom':
+            values = values - np.mean(values)
+        time = values.index.values
+
+        pobj = Proxy(site, start_yr, end_yr, lat, lon, elev, seasonality, values, time)
+        all_proxies.append(pobj)
+
+    return all_proxy_ids, all_proxies
+
+
+def generate_proxy_ind(cfg, all_proxy_ids, seed):
+    nsites = len(all_proxy_ids)
+    nsites_assim = int(nsites * cfg.proxies.proxy_frac)
+
+    random.seed(seed)
+
+    ind_assim = random.sample(range(nsites), nsites_assim)
+    ind_assim.sort()
+
+    ind_eval = list(set(range(nsites)) - set(ind_assim))
+    ind_eval.sort()
+
+    return ind_assim, ind_eval
