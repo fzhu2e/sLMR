@@ -205,8 +205,10 @@ def populate_ensemble(datadict, cfg, seed, verbose=False):
     return Xb_res, ind_ens, Xb_coords
 
 
-def get_proxy(cfg, proxies_df_filepath, metadata_df_filepath):
-    db_proxies = pd.read_pickle(proxies_df_filepath)
+def get_proxy(cfg, proxies_df_filepath, metadata_df_filepath,
+              linear_precalib_filepath=None, bilinear_precalib_filepath=None,
+              verbose=False):
+    db_proxies = pd.read_pickle(proxies_df_filepath).to_dense()
     db_metadata = pd.read_pickle(metadata_df_filepath)
 
     proxy_db_cfg = {
@@ -230,11 +232,14 @@ def get_proxy(cfg, proxies_df_filepath, metadata_df_filepath):
 
     Proxy = collections.namedtuple(
         'Proxy',
-        ['id', 'start_yr', 'end_yr', 'lat', 'lon', 'elev', 'seasonality', 'values', 'time']
+        ['id', 'start_yr', 'end_yr', 'lat', 'lon', 'elev', 'seasonality', 'values', 'time', 'psm_key']
     )
 
     all_proxies = []
+    picked_proxy_ids = []
     start, finish = cfg.core.recon_period
+    check_precalib_file = linear_precalib_filepath or bilinear_precalib_filepath
+
     for site in all_proxy_ids:
         site_meta = db_metadata[db_metadata['Proxy ID'] == site]
         start_yr = site_meta['Youngest (C.E.)'].iloc[0]
@@ -246,16 +251,46 @@ def get_proxy(cfg, proxies_df_filepath, metadata_df_filepath):
         site_data = db_proxies[site]
         values = site_data[(site_data.index >= start) & (site_data.index <= finish)]
         values = values[values.notnull()]
+        time = values.index.values
+
         if len(values) == 0:
             raise ValueError('ERROR: No obs in specified time range!')
         if proxy_db_cfg[db_name].proxy_timeseries_kind == 'anom':
             values = values - np.mean(values)
-        time = values.index.values
 
-        pobj = Proxy(site, start_yr, end_yr, lat, lon, elev, seasonality, values, time)
-        all_proxies.append(pobj)
+        try:
+            pmeasure = site_meta['Proxy measurement'].iloc[0]
+            db_type = site_meta['Archive type'].iloc[0]
+            proxy_type = proxy_db_cfg[db_name].proxy_type_mapping[(db_type, pmeasure)]
+        except (KeyError, ValueError) as e:
+            print(f'Proxy type/measurement not found in mapping: {e}')
+            raise ValueError(e)
 
-    return all_proxy_ids, all_proxies
+        psm_key = proxy_db_cfg[db_name].proxy_psm_type[proxy_type]
+
+        if check_precalib_file:
+            precalib_filepath = {
+                'linear': linear_precalib_filepath,
+                'bilinear': bilinear_precalib_filepath,
+            }
+
+            psm_data = pd.read_pickle(precalib_filepath[psm_key])
+
+            try:
+                psm_site_data = psm_data[(proxy_type, site)]
+                pobj = Proxy(site, start_yr, end_yr, lat, lon, elev, seasonality, values, time, psm_key)
+                all_proxies.append(pobj)
+                picked_proxy_ids.append(site)
+            except KeyError:
+                err_msg = f'Proxy in database but not found in pre-calibration file {precalib_filepath[psm_key]}...\nSkipping: {site}'
+                if verbose:
+                    print(err_msg)
+        else:
+            pobj = Proxy(site, start_yr, end_yr, lat, lon, elev, seasonality, values, time, psm_key)
+            all_proxies.append(pobj)
+            picked_proxy_ids.append(site)
+
+    return picked_proxy_ids, all_proxies
 
 
 def generate_proxy_ind(cfg, all_proxy_ids, seed):
@@ -271,3 +306,93 @@ def generate_proxy_ind(cfg, all_proxy_ids, seed):
     ind_eval.sort()
 
     return ind_assim, ind_eval
+
+
+def get_ye(proxy_manager, prior_sample_idxs, ye_filesdict, proxy_set, verbose=False):
+    num_samples = len(prior_sample_idxs)
+
+    sites_proxy_objs = {
+        'assim': proxy_manager.sites_assim_proxy_objs(),
+        'eval': proxy_manager.sites_eval_proxy_objs(),
+    }
+
+    num_proxies = {
+        'assim': len(proxy_manager.ind_assim),
+        'eval': len(proxy_manager.ind_eval),
+    }
+
+    psm_keys = {
+        'assim': list(set([pobj.psm_key for pobj in proxy_manager.sites_assim_proxy_objs()])),
+        'eval': list(set([pobj.psm_key for pobj in proxy_manager.sites_eval_proxy_objs()])),
+    }
+
+    ye_all = np.zeros((num_proxies[proxy_set], num_samples))
+    ye_all_coords = np.zeros((num_proxies[proxy_set], 2))
+
+    precalc_files = {}
+    for psm_key in psm_keys[proxy_set]:
+        if verbose:
+            print(f'Loading precalculated Ye from:\n {ye_filesdict[psm_key]}')
+
+        precalc_files[psm_key] = np.load(ye_filesdict[psm_key])
+
+    if verbose:
+        print('Now extracting proxy type-dependent Ye values...')
+
+    for i, pobj in enumerate(sites_proxy_objs[proxy_set]):
+        psm_key = pobj.psm_key
+        pid_idx_map = precalc_files[psm_key]['pid_index_map'][()]
+        precalc_vals = precalc_files[psm_key]['ye_vals']
+
+        pidx = pid_idx_map[pobj.id]
+        ye_all[i] = precalc_vals[pidx, prior_sample_idxs]
+        ye_all_coords[i] = np.asarray([pobj.lat, pobj.lon], dtype=np.float64)
+
+    return ye_all, ye_all_coords
+
+
+def get_valid_proxies(cfg, proxy_manager, target_year, Ye_assim, Ye_assim_coords, proxy_inds=None, verbose=False):
+    recon_timescale = cfg.core.recon_timescale
+    if verbose:
+        print(f'finding proxy records for year: {target_year}')
+        print(f'recon_timescale = {recon_timescale}')
+
+    start_yr = int(target_year-recon_timescale//2)
+    end_yr = int(target_year+recon_timescale//2)
+
+    vY = []
+    vR = []
+    vP = []
+    vT = []
+    for proxy_idx, Y in enumerate(proxy_manager.sites_assim_proxy_objs()):
+        # Check if we have proxy ob for current time interval
+        if recon_timescale > 1:
+            # exclude lower bound to not include same obs in adjacent time intervals
+            Yvals = Y.values[(Y.values.index > start_yr) & (Y.values.index <= end_yr)]
+        else:
+            # use all available proxies from config.yml
+            if proxy_inds is None:
+                #Yvals = Y.values[(Y.values.index >= start_yr) & (Y.values.index <= end_yr)]
+                Yvals = Y.values[(Y.time == target_year)]
+                # use only the selected proxies (e.g., randomly filtered post-config)
+            else:
+                if proxy_idx in proxy_inds:
+                    #Yvals = Y.values[(Y.values.index >= start_yr) & (Y.values.index <= end_yr)]
+                    Yvals = Y.values[(Y.time == target_year)]
+                else:
+                    Yvals = pd.DataFrame()
+
+        if Yvals.empty:
+            if verbose: print('no obs for this year')
+            pass
+        else:
+            nYobs = len(Yvals)
+            Yobs =  Yvals.mean()
+            ob_err = Y.psm_obj.R/nYobs
+            #           if (target_year >=start_yr) & (target_year <= end_yr):
+            vY.append(Yobs)
+            vR.append(ob_err)
+            vP.append(proxy_idx)
+            vT.append(Y.type)
+            vYe = Ye_assim[vP, :]
+            vYe_coords = Ye_assim_coords[vP, :]
