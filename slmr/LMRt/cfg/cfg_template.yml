@@ -21,9 +21,9 @@ wrapper:
 
 core:
   nexp: default_recon_job
-  lmr_path: NeedToSet
-  datadir_output: NeedToSet
-  archive_dir: NeedToSet
+  lmr_path: null
+  datadir_output: null
+  archive_dir: null
 
   online_reconstruction: False
   clean_start: True

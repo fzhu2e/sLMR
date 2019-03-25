@@ -7,6 +7,7 @@ import pandas as pd
 import os
 import glob
 from scipy.stats.mstats import mquantiles
+import pickle
 
 
 def plot_gmt_ts(exp_dir, savefig_path=None, plot_vars=['gmt_ensemble', 'nhmt_ensemble', 'shmt_ensemble'],
@@ -107,6 +108,85 @@ def plot_gmt_ts(exp_dir, savefig_path=None, plot_vars=['gmt_ensemble', 'nhmt_ens
             ax.plot(to, gmtp_qs[:,2], '-', color=sns.xkcd_rgb['grey'], alpha=1)
             ax.fill_between(to, gmtp_qs[:,3], gmtp_qs[:,1], color=sns.xkcd_rgb['grey'], alpha=0.5)
             ax.fill_between(to, gmtp_qs[:,-1], gmtp_qs[:,0], color=sns.xkcd_rgb['grey'], alpha=0.1)
+
+    if savefig_path:
+        plt.savefig(savefig_path, bbox_inches='tight')
+        plt.close(fig)
+
+    return fig
+
+
+def plot_gmt_ts_from_jobs(exp_dir, savefig_path=None, plot_vars=['gmt_ensemble', 'nhmt_ensemble', 'shmt_ensemble'],
+        qs=[0.025, 0.25, 0.5, 0.75, 0.975], pannel_size=[10, 4], font_scale=1.5, hspace=0.5, ylim=[-1, 1],
+        plot_prior=False, prior_var_name='tas_sfc_Amon'):
+    ''' Plot timeseries
+
+    Args:
+        exp_dir (str): the path of the results directory that contains subdirs r0, r1, ...
+
+    Returns:
+        fig (figure): the output figure
+    '''
+    # load data
+    if not os.path.exists(exp_dir):
+        raise ValueError('ERROR: Specified path of the results directory does not exist!!!')
+
+    paths = sorted(glob.glob(os.path.join(exp_dir, 'job_r*')))
+    with open(paths[0], 'rb') as f:
+        job_cfg, job_da = pickle.load(f)
+
+    gmt_tmp = job_da.gmt_ens_save
+    nt = np.shape(gmt_tmp)[0]
+    nEN = np.shape(gmt_tmp)[-1]
+    nMC = len(paths)
+
+    nvar = len(plot_vars)
+    sns.set(style="darkgrid", font_scale=font_scale)
+    fig = plt.figure(figsize=[pannel_size[0], pannel_size[1]*nvar])
+
+    ax_title = {
+        'gmt_ensemble': 'Global mean temperature',
+        'shmt_ensemble': 'SH mean temperature',
+        'nhmt_ensemble': 'NH mean temperature',
+    }
+
+    for plot_i, var in enumerate(plot_vars):
+        gmt = np.ndarray((nt, nEN*nMC))
+        for i, path in enumerate(paths):
+            with open(path, 'rb') as f:
+                job_cfg, job_da = pickle.load(f)
+
+            job_gmt = {
+                'gmt_ensemble': job_da.gmt_ens_save,
+                'shmt_ensemble': job_da.nhmt_ens_save,
+                'nhmt_ensemble': job_da.shmt_ens_save,
+            }
+
+            gmt[:, nEN*i:nEN+nEN*i] = job_gmt[var]
+
+        gmt_qs = mquantiles(gmt, qs, axis=-1)
+
+        # plot
+        gs = gridspec.GridSpec(nvar, 1)
+        gs.update(wspace=0, hspace=hspace)
+
+        to = np.arange(nt)
+        ax = plt.subplot(gs[plot_i, 0])
+        if qs[2] == 0.5:
+            label='median'
+        else:
+            label='{}%'.format(qs[2]*100)
+
+        ax.plot(to, gmt_qs[:,2], '-', color=sns.xkcd_rgb['pale red'], alpha=1, label='{}'.format(label))
+        ax.fill_between(to, gmt_qs[:,-2], gmt_qs[:,1], color=sns.xkcd_rgb['pale red'], alpha=0.5,
+                label='{}% to {}%'.format(qs[1]*100, qs[-2]*100))
+        ax.fill_between(to, gmt_qs[:,-1], gmt_qs[:,0], color=sns.xkcd_rgb['pale red'], alpha=0.1,
+                label='{}% to {}%'.format(qs[0]*100, qs[-1]*100))
+        ax.set_title(ax_title[var])
+        ax.set_ylabel('T anom. (K)')
+        ax.set_xlabel('Year (AD)')
+        ax.legend(loc='upper center', ncol=3, frameon=False)
+        ax.set_ylim(ylim)
 
     if savefig_path:
         plt.savefig(savefig_path, bbox_inches='tight')

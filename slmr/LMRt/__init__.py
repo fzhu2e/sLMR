@@ -15,8 +15,21 @@ import yaml
 import os
 from dotmap import DotMap
 from collections import namedtuple
+import numpy as np
+import pickle
 
 from . import utils
+
+ProxyManager = namedtuple(
+    'ProxyManager',
+    ['all_proxies', 'ind_assim', 'ind_eval', 'sites_assim_proxy_objs', 'sites_eval_proxy_objs']
+)
+
+Prior = namedtuple('Prior', ['prior_dict', 'ens', 'prior_sample_indices', 'coords', 'full_state_info', 'trunc_state_info'])
+
+Y = namedtuple('Y', ['Ye_assim', 'Ye_assim_coords', 'Ye_eval', 'Ye_eval_coords'])
+
+DA = namedtuple('DA', ['gmt_ens_save', 'nhmt_ens_save', 'shmt_ens_save'])
 
 
 class ReconJob:
@@ -28,7 +41,7 @@ class ReconJob:
         with open(os.path.join(pwd, './cfg/cfg_template.yml'), 'r') as f:
             cfg_dict = yaml.load(f)
             self.cfg = DotMap(cfg_dict)
-            print('>>> self.cfg created')
+            print(f'pid={os.getpid()} >>> job.cfg created')
 
         proxy_db_cfg = {
             'LMRdb': self.cfg.proxies.LMRdb,
@@ -48,59 +61,187 @@ class ReconJob:
 
         cfg_dict = utils.update_nested_dict(self.cfg, cfg_new)
         self.cfg = DotMap(cfg_dict)
-        print('>>> self.cfg updated')
+        print(f'pid={os.getpid()} >>> job.cfg updated')
 
-    def load_proxies(self, proxies_df_filepath, metadata_df_filepath,
-                     linear_precalib_filepath=None, bilinear_precalib_filepath=None,
-                     seed=0, verbose=False):
+    def load_proxies(self, proxies_df_filepath, metadata_df_filepath, precalib_filesdict=None,
+                     seed=0, verbose=False, print_proxy_count=True):
+
         all_proxy_ids, all_proxies = utils.get_proxy(self.cfg, proxies_df_filepath, metadata_df_filepath,
-                                                     linear_precalib_filepath=linear_precalib_filepath,
-                                                     bilinear_precalib_filepath=bilinear_precalib_filepath,
+                                                     precalib_filesdict=precalib_filesdict,
                                                      verbose=verbose)
-        ind_assim, ind_eval = utils.generate_proxy_ind(self.cfg, all_proxy_ids, seed=seed)
 
-        def pobj_generator(inds):
-            for ind in inds:
-                yield all_proxies[ind]
+        ind_assim, ind_eval = utils.generate_proxy_ind(self.cfg, len(all_proxy_ids), seed=seed)
 
-        def sites_assim_proxy_objs():
-            return pobj_generator(ind_assim)
+        sites_assim_proxy_objs = []
+        for i in ind_assim:
+            sites_assim_proxy_objs.append(all_proxies[i])
 
-        def sites_eval_proxy_objs():
-            return pobj_generator(ind_eval)
+        sites_eval_proxy_objs = []
+        for i in ind_eval:
+            sites_eval_proxy_objs.append(all_proxies[i])
 
-        ProxyManager = namedtuple('ProxyManager', ['all_proxies', 'ind_assim', 'ind_eval',
-                                                   'sites_assim_proxy_objs', 'sites_eval_proxy_objs'])
+        #  def pobj_generator(inds):
+            #  for ind in inds:
+                #  yield all_proxies[ind]
+
+        #  def sites_assim_proxy_objs():
+            #  return pobj_generator(ind_assim)
+
+        #  def sites_eval_proxy_objs():
+            #  return pobj_generator(ind_eval)
+
         self.proxy_manager = ProxyManager(all_proxies, ind_assim, ind_eval, sites_assim_proxy_objs, sites_eval_proxy_objs)
-        print('>>> self.proxy_manager created')
+        print(f'pid={os.getpid()} >>> job.proxy_manager created')
+
+        if print_proxy_count:
+            assim_sites_types = {}
+            #  for pobj in self.proxy_manager.sites_assim_proxy_objs():
+            for pobj in self.proxy_manager.sites_assim_proxy_objs:
+                if pobj.type not in assim_sites_types:
+                    assim_sites_types[pobj.type] = 1
+                else:
+                    assim_sites_types[pobj.type] += 1
+
+            assim_proxy_count = 0
+            for pkey, pnum in sorted(assim_sites_types.items()):
+                print(f'{pkey:>45s}:{pnum:5d}')
+                assim_proxy_count += pnum
+
+            print(f'{"TOTAL":>45s}:{assim_proxy_count:5d}')
 
     def load_prior(self, prior_filepath, seed=0, verbose=False):
         prior_dict = utils.load_netcdf(prior_filepath, verbose=verbose)
-        ens, prior_sample_indices, coords = utils.populate_ensemble(
+        ens, prior_sample_indices, coords, full_state_info = utils.populate_ensemble(
             prior_dict, self.cfg, seed=seed, verbose=verbose)
 
-        Prior = namedtuple('Prior', ['ens', 'prior_sample_indices', 'coords'])
-        self.prior = Prior(ens, prior_sample_indices, coords)
-        print('>>> self.prior created')
+        self.prior = Prior(prior_dict, ens, prior_sample_indices, coords, full_state_info, full_state_info)
+        print(f'pid={os.getpid()} >>> job.prior created')
+        if self.cfg.prior.regrid_method:
+            ens, coords, trunc_state_info = utils.regrid_prior(self.cfg, self.prior)
+            self.prior = Prior(prior_dict, ens, prior_sample_indices, coords, full_state_info, trunc_state_info)
+            print(f'pid={os.getpid()} >>> job.prior regridded')
 
     def build_ye_files(self, prior_filepath, verbose=False):
         if verbose:
             print(f'Starting Ye precalculation using prior data from {prior_filepath}')
         pass
 
-    def load_ye_files(self, ye_filesdict, proxy_set='assim', verbose=False):
+    def load_ye_files(self, ye_filesdict, verbose=False):
         ''' Load precalculated Ye files
 
         Args:
             ye_filesdict (dict): e.g. {'linear': linear_filepath, 'blinear': bilinear_filepath}
             proxy_set (str): 'assim' or 'eval'
         '''
-        ye_all, ye_all_coords = utils.get_ye(self.proxy_manager,
+        Ye_assim, Ye_assim_coords = utils.get_ye(self.proxy_manager,
                                              self.prior.prior_sample_indices,
                                              ye_filesdict=ye_filesdict,
-                                             proxy_set=proxy_set,
+                                             proxy_set='assim',
                                              verbose=verbose)
 
-        Y = namedtuple('Y', ['ye_all', 'ye_all_coords'])
-        self.ye = Y(ye_all, ye_all_coords)
-        print('>>> self.ye created')
+        Ye_eval, Ye_eval_coords = utils.get_ye(self.proxy_manager,
+                                             self.prior.prior_sample_indices,
+                                             ye_filesdict=ye_filesdict,
+                                             proxy_set='eval',
+                                             verbose=verbose)
+
+        self.ye = Y(Ye_assim, Ye_assim_coords, Ye_eval, Ye_eval_coords)
+        print(f'pid={os.getpid()} >>> job.ye created')
+
+    def run_da(self, recon_years=None, proxy_inds=None, verbose=False):
+        cfg = self.cfg
+        prior = self.prior
+        proxy_manager = self.proxy_manager
+        Ye_assim = self.ye.Ye_assim
+        Ye_assim_coords = self.ye.Ye_assim_coords
+
+        if recon_years is None:
+            yr_start = cfg.core.recon_period[0]
+            yr_end = cfg.core.recon_period[1]
+            recon_years = list(range(yr_start, yr_end))
+        else:
+            yr_start, yr_end = recon_years[0], recon_years[-1]
+        print(f'pid={os.getpid()} >>> Recon. period: {yr_start}...{yr_end}')
+
+        Xb_one = prior.ens
+        grid = utils.make_grid(prior)
+        nyr = len(recon_years)
+
+        gmt_ens_save = np.zeros((nyr, grid.nens))
+        nhmt_ens_save = np.zeros((nyr, grid.nens))
+        shmt_ens_save = np.zeros((nyr, grid.nens))
+
+        for yk, target_year in enumerate(recon_years):
+            gmt_ens_save[yk], nhmt_ens_save[yk], shmt_ens_save[yk] = utils.update_year(
+                target_year, cfg, Xb_one, grid, proxy_manager, Ye_assim, Ye_assim_coords, verbose=verbose)
+
+        self.da = DA(gmt_ens_save, nhmt_ens_save, shmt_ens_save)
+        print(f'pid={os.getpid()} >>> job.da created')
+
+    #  def run_da(self, recon_years=None, proxy_inds=None, verbose=False):
+    #      cfg = self.cfg
+    #      prior = self.prior
+    #      proxy_manager = self.proxy_manager
+    #      Ye_assim = self.ye.Ye_assim
+    #      Ye_assim_coords = self.ye.Ye_assim_coords
+    #      Ye_eval = self.ye.Ye_eval
+    #      Ye_eval_coords = self.ye.Ye_eval_coords
+
+    #      if recon_years is None:
+    #          yr_start = cfg.core.recon_period[0]
+    #          yr_end = cfg.core.recon_period[1]
+    #          recon_years = list(range(yr_start, yr_end))
+    #      else:
+    #          yr_start, yr_end = recon_years[0], recon_years[-1]
+    #      print(f'pid={os.getpid()} >>> Recon. period: {yr_start}...{yr_end}')
+
+    #      Xb_one = prior.ens
+    #      Xb_one_aug = np.append((Xb_one, Ye_assim, Ye_eval), axis=0)
+    #      grid = utils.make_grid(prior)
+    #      nyr = len(recon_years)
+    #      assim_proxy_count = np.shape(Ye_assim)[0]
+
+    #      xbm = np.mean(Xb_one, axis=-1)
+    #      xbm_lalo = xbm.reshape(grid.nlat, grid.nlon)
+    #      gmt, nhmt, shmt = utils.global_hemispheric_means(xbm_lalo, grid.lat)
+
+    #      gmt_save = np.zeros((assim_proxy_count+1, nyr))
+    #      nhmt_save = np.zeros((assim_proxy_count+1, nyr))
+    #      shmt_save = np.zeros((assim_proxy_count+1, nyr))
+
+    #      # First row is prior GMT
+    #      gmt_save[0, :] = gmt
+    #      nhmt_save[0, :] = nhmt
+    #      shmt_save[0, :] = shmt
+    #      # Prior for first proxy assimilated
+    #      gmt_save[1, :] = gmt
+    #      nhmt_save[1, :] = nhmt
+    #      shmt_save[1, :] = shmt
+
+    #      gmt_ens_save = np.zeros((nyr, grid.nens))
+    #      nhmt_ens_save = np.zeros((nyr, grid.nens))
+    #      shmt_ens_save = np.zeros((nyr, grid.nens))
+
+    #      for yk, target_year in enumerate(recon_years):
+    #          gmt_ens_save[yk], nhmt_ens_save[yk], shmt_ens_save[yk] = utils.update_year(
+    #              target_year, cfg, Xb_one, grid, proxy_manager, Ye_assim, Ye_assim_coords, verbose=verbose)
+
+    #      self.da = DA(gmt_ens_save, nhmt_ens_save, shmt_ens_save)
+    #      print(f'pid={os.getpid()} >>> job.da created')
+
+    def run(self, prior_filepath, db_proxies_filepath, db_metadata_filepath,
+            recon_years=None, seed=0, precalib_filesdict=None, ye_filesdict=None,
+            verbose=False, print_proxy_count=False, save_dirpath=None):
+
+        self.load_prior(prior_filepath, verbose=verbose, seed=seed)
+        self.load_proxies(db_proxies_filepath, db_metadata_filepath, precalib_filesdict=precalib_filesdict,
+                          verbose=verbose, seed=seed, print_proxy_count=print_proxy_count)
+        self.load_ye_files(ye_filesdict=ye_filesdict, verbose=verbose)
+        self.run_da(recon_years=recon_years, verbose=verbose)
+
+        if save_dirpath:
+            os.makedirs(save_dirpath, exist_ok=True)
+            save_path = os.path.join(save_dirpath, f'job_r{seed:02d}.pkl')
+            print(f'pid={os.getpid()} >>> Saving job.da to: {save_path}')
+            with open(save_path, 'wb') as f:
+                pickle.dump([self.cfg, self.da], f)
