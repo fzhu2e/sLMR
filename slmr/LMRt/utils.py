@@ -501,7 +501,8 @@ def make_grid(prior):
     return g
 
 
-def update_year(target_year, cfg, Xb_one, grid, proxy_manager, ye_all, ye_all_coords, proxy_inds=None, verbose=False):
+def update_year_lite(target_year, cfg, Xb_one, grid, proxy_manager, ye_all, ye_all_coords,
+                     proxy_inds=None, verbose=False):
 
     vY, vR, vP, vYe, vT, vYe_coords = get_valid_proxies(
         cfg, proxy_manager, target_year, ye_all, ye_all_coords, proxy_inds=proxy_inds, verbose=verbose)
@@ -519,29 +520,66 @@ def update_year(target_year, cfg, Xb_one, grid, proxy_manager, ye_all, ye_all_co
     return gmt_ens, nhmt_ens, shmt_ens
 
 
-#  def update_year(target_year, cfg, Xb_one, grid, proxy_manager, Ye_assim, Ye_assim_coords, proxy_inds=None, verbose=False):
+def update_year(yr_idx, target_year,
+                cfg, Xb_one_aug, Xb_one_coords, X, sites_assim_proxy_objs,
+                assim_proxy_count, eval_proxy_count, grid,
+                ibeg_tas, iend_tas,
+                verbose=False):
 
-#      recon_timescale = cfg.core.recon_timescale
-#      start_yr = int(target_year-recon_timescale//2)
-#      end_yr = int(target_year+recon_timescale//2)
+    recon_timescale = cfg.core.recon_timescale
+    start_yr = int(target_year-recon_timescale//2)
+    end_yr = int(target_year+recon_timescale//2)
 
-#      for proxy_idx, Y in enumerate(proxy_manager.sites_assim_proxy_objs):
-#          try:
-#              if recon_timescale > 1:
-#                  # exclude lower bound to not include same obs in adjacent time intervals
-#                  Yvals = Y.values[(Y.values.index > start_yr) & (Y.values.index <= end_yr)]
-#              else:
-#                  Yvals = Y.values[(Y.values.index >= start_yr) & (Y.values.index <= end_yr)]
-#                  if Yvals.empty:
-#                      raise KeyError()
-#                  nYobs = len(Yvals)
-#                  Yobs =  Yvals.mean()
+    Xb = Xb_one_aug.copy()
 
-#          except KeyError:
-#              # Make sure GMT spot filled from previous proxy
-#              # TODO: AP temporary fix for no TAS in state
-#              gmt_save[proxy_idx+1, yr_idx] = gmt_save[proxy_idx, yr_idx]
-#              continue # skip to next loop iteration (proxy record)
+    nens = grid.nens
+    gmt_ens = np.zeros(nens)
+    nhmt_ens = np.zeros(nens)
+    shmt_ens = np.zeros(nens)
+
+    for proxy_idx, Y in enumerate(sites_assim_proxy_objs):
+        try:
+            if recon_timescale > 1:
+                # exclude lower bound to not include same obs in adjacent time intervals
+                Yvals = Y.values[(Y.values.index > start_yr) & (Y.values.index <= end_yr)]
+            else:
+                Yvals = Y.values[(Y.values.index >= start_yr) & (Y.values.index <= end_yr)]
+                if Yvals.empty:
+                    raise KeyError()
+                nYobs = len(Yvals)
+                Yobs = Yvals.mean()
+
+        except KeyError:
+            continue  # skip to next loop iteration (proxy record)
+
+        if cfg.core.loc_rad is not None:
+            loc = cov_localization(cfg.core.loc_rad, Y, X, Xb_one_coords)
+
+        Ye = Xb[proxy_idx - (assim_proxy_count+eval_proxy_count)]
+
+        ob_err = Y.psm_obj.R
+        if nYobs > 1:
+            ob_err = ob_err/float(nYobs)
+
+        Xa = enkf_update_array(Xb, Yobs, Ye, ob_err, loc, cfg.core.inflate)
+
+        xbvar = Xb.var(axis=1, ddof=1)
+        xavar = Xa.var(axis=1, ddof=1)
+        vardiff = xavar - xbvar
+        if (not np.isfinite(np.min(vardiff))) or (not np.isfinite(np.max(vardiff))):
+            print('ERROR: Reconstruction has blown-up. Exiting!')
+            raise SystemExit(1)
+
+        if verbose:
+            print('min/max change in variance: ('+str(np.min(vardiff))+','+str(np.max(vardiff))+')')
+
+        Xb = Xa
+
+        for k in range(grid.nens):
+            xam_lalo = Xa[ibeg_tas:iend_tas+1, k].reshape(grid.nlat, grid.nlon)
+            gmt_ens[k], nhmt_ens[k], shmt_ens[k] = global_hemispheric_means(xam_lalo, grid.lat)
+
+    return gmt_ens, nhmt_ens, shmt_ens
 
 
 def regrid_sphere(nlat, nlon, Nens, X, ntrunc):
@@ -627,7 +665,6 @@ def generate_latlon(nlats, nlons, include_endpts=False,
         Array of latitude boundaries for all grid cells (nlat+1)
     lon_corner:
         Array of longitude boundaries for all grid cells (nlon+1)
-
     """
 
     if len(lat_bnd) != 2 or len(lon_bnd) != 2:
@@ -1100,4 +1137,3 @@ def Kalman_optimal(Y, vR, Ye, Xb, nsvs=None, transform_only=False, verbose=False
         'readme': readme,
     }
     return xam, Xap, SVD
-

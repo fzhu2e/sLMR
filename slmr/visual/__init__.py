@@ -158,8 +158,8 @@ def plot_gmt_ts_from_jobs(exp_dir, savefig_path=None, plot_vars=['gmt_ensemble',
 
             job_gmt = {
                 'gmt_ensemble': job_da.gmt_ens_save,
-                'shmt_ensemble': job_da.nhmt_ens_save,
-                'nhmt_ensemble': job_da.shmt_ens_save,
+                'nhmt_ensemble': job_da.nhmt_ens_save,
+                'shmt_ensemble': job_da.shmt_ens_save,
             }
 
             gmt[:, nEN*i:nEN+nEN*i] = job_gmt[var]

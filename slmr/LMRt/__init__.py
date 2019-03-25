@@ -17,6 +17,7 @@ from dotmap import DotMap
 from collections import namedtuple
 import numpy as np
 import pickle
+from tqdm import tqdm
 
 from . import utils
 
@@ -148,7 +149,7 @@ class ReconJob:
         self.ye = Y(Ye_assim, Ye_assim_coords, Ye_eval, Ye_eval_coords)
         print(f'pid={os.getpid()} >>> job.ye created')
 
-    def run_da(self, recon_years=None, proxy_inds=None, verbose=False):
+    def run_da_lite(self, recon_years=None, proxy_inds=None, verbose=False):
         cfg = self.cfg
         prior = self.prior
         proxy_manager = self.proxy_manager
@@ -171,73 +172,75 @@ class ReconJob:
         nhmt_ens_save = np.zeros((nyr, grid.nens))
         shmt_ens_save = np.zeros((nyr, grid.nens))
 
-        for yk, target_year in enumerate(recon_years):
-            gmt_ens_save[yk], nhmt_ens_save[yk], shmt_ens_save[yk] = utils.update_year(
+        for yk, target_year in enumerate(tqdm(recon_years, desc='KF updating')):
+            gmt_ens_save[yk], nhmt_ens_save[yk], shmt_ens_save[yk] = utils.update_year_lite(
                 target_year, cfg, Xb_one, grid, proxy_manager, Ye_assim, Ye_assim_coords, verbose=verbose)
 
         self.da = DA(gmt_ens_save, nhmt_ens_save, shmt_ens_save)
         print(f'pid={os.getpid()} >>> job.da created')
 
-    #  def run_da(self, recon_years=None, proxy_inds=None, verbose=False):
-    #      cfg = self.cfg
-    #      prior = self.prior
-    #      proxy_manager = self.proxy_manager
-    #      Ye_assim = self.ye.Ye_assim
-    #      Ye_assim_coords = self.ye.Ye_assim_coords
-    #      Ye_eval = self.ye.Ye_eval
-    #      Ye_eval_coords = self.ye.Ye_eval_coords
+    def run_da(self, recon_years=None, proxy_inds=None, verbose=False):
+        cfg = self.cfg
+        prior = self.prior
+        proxy_manager = self.proxy_manager
 
-    #      if recon_years is None:
-    #          yr_start = cfg.core.recon_period[0]
-    #          yr_end = cfg.core.recon_period[1]
-    #          recon_years = list(range(yr_start, yr_end))
-    #      else:
-    #          yr_start, yr_end = recon_years[0], recon_years[-1]
-    #      print(f'pid={os.getpid()} >>> Recon. period: {yr_start}...{yr_end}')
+        Ye_assim = self.ye.Ye_assim
+        Ye_assim_coords = self.ye.Ye_assim_coords
+        assim_proxy_count = np.shape(Ye_assim)[0]
 
-    #      Xb_one = prior.ens
-    #      Xb_one_aug = np.append((Xb_one, Ye_assim, Ye_eval), axis=0)
-    #      grid = utils.make_grid(prior)
-    #      nyr = len(recon_years)
-    #      assim_proxy_count = np.shape(Ye_assim)[0]
+        Ye_eval = self.ye.Ye_eval
+        Ye_eval_coords = self.ye.Ye_eval_coords
+        eval_proxy_count = np.shape(Ye_eval)[0]
 
-    #      xbm = np.mean(Xb_one, axis=-1)
-    #      xbm_lalo = xbm.reshape(grid.nlat, grid.nlon)
-    #      gmt, nhmt, shmt = utils.global_hemispheric_means(xbm_lalo, grid.lat)
+        ibeg_tas = prior.trunc_state_info['tas_sfc_Amon']['pos'][0]
+        iend_tas = prior.trunc_state_info['tas_sfc_Amon']['pos'][1]
 
-    #      gmt_save = np.zeros((assim_proxy_count+1, nyr))
-    #      nhmt_save = np.zeros((assim_proxy_count+1, nyr))
-    #      shmt_save = np.zeros((assim_proxy_count+1, nyr))
+        if recon_years is None:
+            yr_start = cfg.core.recon_period[0]
+            yr_end = cfg.core.recon_period[1]
+            recon_years = list(range(yr_start, yr_end))
+        else:
+            yr_start, yr_end = recon_years[0], recon_years[-1]
+        print(f'pid={os.getpid()} >>> Recon. period: {yr_start}...{yr_end}')
 
-    #      # First row is prior GMT
-    #      gmt_save[0, :] = gmt
-    #      nhmt_save[0, :] = nhmt
-    #      shmt_save[0, :] = shmt
-    #      # Prior for first proxy assimilated
-    #      gmt_save[1, :] = gmt
-    #      nhmt_save[1, :] = nhmt
-    #      shmt_save[1, :] = shmt
+        Xb_one = prior.ens
+        Xb_one_aug = np.append(Xb_one, Ye_assim, axis=0)
+        Xb_one_aug = np.append(Xb_one_aug, Ye_eval, axis=0)
+        Xb_one_coords = np.append(prior.coords, Ye_assim_coords, axis=0)
+        Xb_one_coords = np.append(Xb_one_coords, Ye_eval_coords, axis=0)
 
-    #      gmt_ens_save = np.zeros((nyr, grid.nens))
-    #      nhmt_ens_save = np.zeros((nyr, grid.nens))
-    #      shmt_ens_save = np.zeros((nyr, grid.nens))
+        grid = utils.make_grid(prior)
+        nyr = len(recon_years)
 
-    #      for yk, target_year in enumerate(recon_years):
-    #          gmt_ens_save[yk], nhmt_ens_save[yk], shmt_ens_save[yk] = utils.update_year(
-    #              target_year, cfg, Xb_one, grid, proxy_manager, Ye_assim, Ye_assim_coords, verbose=verbose)
+        gmt_ens_save = np.zeros((nyr, grid.nens))
+        nhmt_ens_save = np.zeros((nyr, grid.nens))
+        shmt_ens_save = np.zeros((nyr, grid.nens))
 
-    #      self.da = DA(gmt_ens_save, nhmt_ens_save, shmt_ens_save)
-    #      print(f'pid={os.getpid()} >>> job.da created')
+        for yr_idx, target_year in enumerate(tqdm(recon_years, desc='KF updating')):
+            gmt_ens_save[yr_idx], nhmt_ens_save[yr_idx], shmt_ens_save[yr_idx] = utils.update_year(
+                yr_idx, target_year,
+                cfg, Xb_one_aug, Xb_one_coords, prior, proxy_manager.sites_assim_proxy_objs,
+                assim_proxy_count, eval_proxy_count, grid,
+                ibeg_tas, iend_tas,
+                verbose=verbose
+            )
+
+        self.da = DA(gmt_ens_save, nhmt_ens_save, shmt_ens_save)
+        print(f'pid={os.getpid()} >>> job.da created')
 
     def run(self, prior_filepath, db_proxies_filepath, db_metadata_filepath,
             recon_years=None, seed=0, precalib_filesdict=None, ye_filesdict=None,
-            verbose=False, print_proxy_count=False, save_dirpath=None):
+            verbose=False, print_proxy_count=False, save_dirpath=None, mode='normal'):
 
         self.load_prior(prior_filepath, verbose=verbose, seed=seed)
         self.load_proxies(db_proxies_filepath, db_metadata_filepath, precalib_filesdict=precalib_filesdict,
                           verbose=verbose, seed=seed, print_proxy_count=print_proxy_count)
         self.load_ye_files(ye_filesdict=ye_filesdict, verbose=verbose)
-        self.run_da(recon_years=recon_years, verbose=verbose)
+
+        if mode == 'lite':
+            self.run_da_lite(recon_years=recon_years, verbose=verbose)
+        else:
+            self.run_da(recon_years=recon_years, verbose=verbose)
 
         if save_dirpath:
             os.makedirs(save_dirpath, exist_ok=True)
