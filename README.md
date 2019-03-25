@@ -12,6 +12,7 @@ Python 3
 
 + [v0.1] Running LMR with [Slurm](https://slurm.schedmd.com/) on a cluster with just one command line
 + [v0.2] Post-processing: pick files with the same filename from different directories
++ [v0.3] LMR Turbo (LMRt)
 
 ## How to install
 Simply
