@@ -42,34 +42,22 @@ class ReconJob:
         with open(os.path.join(pwd, './cfg/cfg_template.yml'), 'r') as f:
             cfg_dict = yaml.load(f)
             self.cfg = DotMap(cfg_dict)
+            self.cfg = utils.setup_cfg(self.cfg)
             print(f'pid={os.getpid()} >>> job.cfg created')
-
-        proxy_db_cfg = {
-            'LMRdb': self.cfg.proxies.LMRdb,
-        }
-
-        for db_name, db_cfg in proxy_db_cfg.items():
-            db_cfg.proxy_type_mapping = {}
-            for ptype, measurements in db_cfg.proxy_assim2.items():
-                # Fetch proxy type name that occurs before underscore
-                type_name = ptype.split('_', 1)[0]
-                for measure in measurements:
-                    db_cfg.proxy_type_mapping[(type_name, measure)] = ptype
 
     def load_cfg(self, cfg_filepath):
         with open(cfg_filepath, 'r') as f:
             cfg_new = yaml.load(f)
 
-        cfg_dict = utils.update_nested_dict(self.cfg, cfg_new)
-        self.cfg = DotMap(cfg_dict)
+        self.cfg = DotMap(cfg_new)
+        self.cfg = utils.setup_cfg(self.cfg)
         print(f'pid={os.getpid()} >>> job.cfg updated')
 
     def load_proxies(self, proxies_df_filepath, metadata_df_filepath, precalib_filesdict=None,
                      seed=0, verbose=False, print_proxy_count=True):
 
         all_proxy_ids, all_proxies = utils.get_proxy(self.cfg, proxies_df_filepath, metadata_df_filepath,
-                                                     precalib_filesdict=precalib_filesdict,
-                                                     verbose=verbose)
+                                                     precalib_filesdict=precalib_filesdict, verbose=verbose)
 
         ind_assim, ind_eval = utils.generate_proxy_ind(self.cfg, len(all_proxy_ids), seed=seed)
 
@@ -81,22 +69,11 @@ class ReconJob:
         for i in ind_eval:
             sites_eval_proxy_objs.append(all_proxies[i])
 
-        #  def pobj_generator(inds):
-            #  for ind in inds:
-                #  yield all_proxies[ind]
-
-        #  def sites_assim_proxy_objs():
-            #  return pobj_generator(ind_assim)
-
-        #  def sites_eval_proxy_objs():
-            #  return pobj_generator(ind_eval)
-
         self.proxy_manager = ProxyManager(all_proxies, ind_assim, ind_eval, sites_assim_proxy_objs, sites_eval_proxy_objs)
         print(f'pid={os.getpid()} >>> job.proxy_manager created')
 
         if print_proxy_count:
             assim_sites_types = {}
-            #  for pobj in self.proxy_manager.sites_assim_proxy_objs():
             for pobj in self.proxy_manager.sites_assim_proxy_objs:
                 if pobj.type not in assim_sites_types:
                     assim_sites_types[pobj.type] = 1
@@ -161,7 +138,7 @@ class ReconJob:
             yr_end = cfg.core.recon_period[1]
             recon_years = list(range(yr_start, yr_end))
         else:
-            yr_start, yr_end = recon_years[0], recon_years[-1]
+            yr_start, yr_end = recon_years[0], recon_years[-1]-1
         print(f'pid={os.getpid()} >>> Recon. period: {yr_start}...{yr_end}')
 
         Xb_one = prior.ens
@@ -172,8 +149,8 @@ class ReconJob:
         nhmt_ens_save = np.zeros((nyr, grid.nens))
         shmt_ens_save = np.zeros((nyr, grid.nens))
 
-        for yk, target_year in enumerate(tqdm(recon_years, desc='KF updating')):
-            gmt_ens_save[yk], nhmt_ens_save[yk], shmt_ens_save[yk] = utils.update_year_lite(
+        for yr_idx, target_year in enumerate(tqdm(recon_years, desc=f'KF updating (pid={os.getpid()})')):
+            gmt_ens_save[yr_idx], nhmt_ens_save[yr_idx], shmt_ens_save[yr_idx] = utils.update_year_lite(
                 target_year, cfg, Xb_one, grid, proxy_manager, Ye_assim, Ye_assim_coords, verbose=verbose)
 
         self.da = DA(gmt_ens_save, nhmt_ens_save, shmt_ens_save)
@@ -197,7 +174,7 @@ class ReconJob:
 
         if recon_years is None:
             yr_start = cfg.core.recon_period[0]
-            yr_end = cfg.core.recon_period[1]
+            yr_end = cfg.core.recon_period[1]-1
             recon_years = list(range(yr_start, yr_end))
         else:
             yr_start, yr_end = recon_years[0], recon_years[-1]
@@ -216,7 +193,7 @@ class ReconJob:
         nhmt_ens_save = np.zeros((nyr, grid.nens))
         shmt_ens_save = np.zeros((nyr, grid.nens))
 
-        for yr_idx, target_year in enumerate(tqdm(recon_years, desc='KF updating')):
+        for yr_idx, target_year in enumerate(tqdm(recon_years, desc=f'KF updating (pid={os.getpid()})')):
             gmt_ens_save[yr_idx], nhmt_ens_save[yr_idx], shmt_ens_save[yr_idx] = utils.update_year(
                 yr_idx, target_year,
                 cfg, Xb_one_aug, Xb_one_coords, prior, proxy_manager.sites_assim_proxy_objs,

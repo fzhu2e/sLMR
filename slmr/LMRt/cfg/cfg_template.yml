@@ -35,7 +35,6 @@ core:
   recon_timescale: 1
 #  recon_timescale: 250
   nens: 100
-  nthreads: 8  # added by fzhu
   seed: null
   loc_rad: 25000
   inflation_fact: null

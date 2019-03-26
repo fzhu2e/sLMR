@@ -34,16 +34,20 @@ def timeit(func):
     return decorated_func
 
 
-def update_nested_dict(d, other):
-    ''' Ref: https://code.i-harness.com/en/q/3154af
-    '''
-    for k, v in other.items():
-        d_v = d.get(k)
-        if isinstance(v, Mapping) and isinstance(d_v, Mapping):
-            update_nested_dict(d_v, v)
-        else:
-            d[k] = deepcopy(v)
-        return d
+def setup_cfg(cfg):
+    proxy_db_cfg = {
+        'LMRdb': cfg.proxies.LMRdb,
+    }
+
+    for db_name, db_cfg in proxy_db_cfg.items():
+        db_cfg.proxy_type_mapping = {}
+        for ptype, measurements in db_cfg.proxy_assim2.items():
+            # Fetch proxy type name that occurs before underscore
+            type_name = ptype.split('_', 1)[0]
+            for measure in measurements:
+                db_cfg.proxy_type_mapping[(type_name, measure)] = ptype
+
+    return cfg
 
 
 def load_netcdf(filepath, verbose=False):
@@ -398,6 +402,12 @@ def generate_proxy_ind(cfg, nsites, seed):
 
 
 def get_ye(proxy_manager, prior_sample_idxs, ye_filesdict, proxy_set, verbose=False):
+
+    if verbose:
+        print(f'-------------------------------------------')
+        print(f'Loading Ye files for proxy set: {proxy_set}')
+        print(f'-------------------------------------------')
+
     num_samples = len(prior_sample_idxs)
 
     sites_proxy_objs = {
@@ -421,12 +431,12 @@ def get_ye(proxy_manager, prior_sample_idxs, ye_filesdict, proxy_set, verbose=Fa
     precalc_files = {}
     for psm_key in psm_keys[proxy_set]:
         if verbose:
-            print(f'Loading precalculated Ye from:\n {ye_filesdict[psm_key]}')
+            print(f'Loading precalculated Ye from:\n {ye_filesdict[psm_key]}\n')
 
         precalc_files[psm_key] = np.load(ye_filesdict[psm_key])
 
     if verbose:
-        print('Now extracting proxy type-dependent Ye values...')
+        print('Now extracting proxy type-dependent Ye values...\n')
 
     for i, pobj in enumerate(sites_proxy_objs[proxy_set]):
         psm_key = pobj.psm_obj.psm_key
