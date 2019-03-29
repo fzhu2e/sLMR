@@ -512,12 +512,16 @@ def make_grid(prior):
 
 
 def update_year_lite(target_year, cfg, Xb_one, grid, proxy_manager, ye_all, ye_all_coords,
-                     proxy_inds=None, verbose=False):
+                     proxy_inds=None, da_solver='ESRF', verbose=False):
 
     vY, vR, vP, vYe, vT, vYe_coords = get_valid_proxies(
         cfg, proxy_manager, target_year, ye_all, ye_all_coords, proxy_inds=proxy_inds, verbose=verbose)
 
-    xam, Xap, _ = Kalman_optimal(vY, vR, vYe, Xb_one)
+    da_update_func = {
+        'ESRF': Kalman_ESRF,
+        'optimal': Kalman_optimal,
+    }
+    xam, Xap = da_update_func[da_solver](vY, vR, vYe, Xb_one, loc_rad=cfg.core.loc_rad)
     nens = grid.nens
     gmt_ens = np.zeros(nens)
     nhmt_ens = np.zeros(nens)
@@ -1040,7 +1044,7 @@ def global_hemispheric_means(field, lat):
     return gm, nhm, shm
 
 
-def Kalman_optimal(Y, vR, Ye, Xb, nsvs=None, transform_only=False, verbose=False):
+def Kalman_optimal(Y, vR, Ye, Xb, loc_rad=None, nsvs=None, transform_only=False, verbose=False):
     """
     Y: observation vector (p x 1)
     vR: observation error variance vector (p x 1)
@@ -1147,3 +1151,40 @@ def Kalman_optimal(Y, vR, Ye, Xb, nsvs=None, transform_only=False, verbose=False
         'readme': readme,
     }
     return xam, Xap, SVD
+
+
+def Kalman_ESRF(vY, vR, vYe, Xb_in, loc_rad=None, verbose=False):
+
+    if verbose:
+        print('Ensemble square root filter...')
+
+    begin_time = time()
+
+    # number of state variables
+    nx = Xb_in.shape[0]
+
+    # augmented state vector with Ye appended
+    Xb = np.append(Xb_in, vYe, axis=0)
+
+    # need to add code block to compute localization factor
+    nobs = len(vY)
+    if verbose: print('appended state...')
+    for k in range(nobs):
+        #if np.mod(k,100)==0: print k
+        obvalue = vY[k]
+        ob_err = vR[k]
+        Ye = Xb[nx+k,:]
+        Xa = enkf_update_array(Xb, obvalue, Ye, ob_err, loc=None, inflate=None)
+        Xb = Xa
+
+    # ensemble mean and perturbations
+    Xap = Xa[0:nx,:] - Xa[0:nx,:].mean(axis=1,keepdims=True)
+    xam = Xa[0:nx,:].mean(axis=1)
+
+    elapsed_time = time() - begin_time
+    if verbose:
+        print('-----------------------------------------------------')
+        print('completed in ' + str(elapsed_time) + ' seconds')
+        print('-----------------------------------------------------')
+
+    return xam, Xap

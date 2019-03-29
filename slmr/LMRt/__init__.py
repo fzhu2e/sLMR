@@ -126,7 +126,7 @@ class ReconJob:
         self.ye = Y(Ye_assim, Ye_assim_coords, Ye_eval, Ye_eval_coords)
         print(f'pid={os.getpid()} >>> job.ye created')
 
-    def run_da_lite(self, recon_years=None, proxy_inds=None, verbose=False):
+    def run_da_lite(self, recon_years=None, proxy_inds=None, da_solver='ESRF', verbose=False):
         cfg = self.cfg
         prior = self.prior
         proxy_manager = self.proxy_manager
@@ -139,7 +139,7 @@ class ReconJob:
             recon_years = list(range(yr_start, yr_end))
         else:
             yr_start, yr_end = recon_years[0], recon_years[-1]-1
-        print(f'pid={os.getpid()} >>> Recon. period: {yr_start}...{yr_end}')
+        print(f'pid={os.getpid()} >>> Recon. period: [{yr_start}, {yr_end})')
 
         Xb_one = prior.ens
         grid = utils.make_grid(prior)
@@ -151,7 +151,8 @@ class ReconJob:
 
         for yr_idx, target_year in enumerate(tqdm(recon_years, desc=f'KF updating (pid={os.getpid()})')):
             gmt_ens_save[yr_idx], nhmt_ens_save[yr_idx], shmt_ens_save[yr_idx] = utils.update_year_lite(
-                target_year, cfg, Xb_one, grid, proxy_manager, Ye_assim, Ye_assim_coords, verbose=verbose)
+                target_year, cfg, Xb_one, grid, proxy_manager, Ye_assim, Ye_assim_coords, da_solver=da_solver,
+                verbose=verbose)
 
         self.da = DA(gmt_ens_save, nhmt_ens_save, shmt_ens_save)
         print(f'pid={os.getpid()} >>> job.da created')
@@ -174,11 +175,11 @@ class ReconJob:
 
         if recon_years is None:
             yr_start = cfg.core.recon_period[0]
-            yr_end = cfg.core.recon_period[1]-1
+            yr_end = cfg.core.recon_period[1]
             recon_years = list(range(yr_start, yr_end))
         else:
-            yr_start, yr_end = recon_years[0], recon_years[-1]
-        print(f'pid={os.getpid()} >>> Recon. period: {yr_start}...{yr_end}')
+            yr_start, yr_end = recon_years[0], recon_years[-1]-1
+        print(f'pid={os.getpid()} >>> Recon. period: [{yr_start}, {yr_end})')
 
         Xb_one = prior.ens
         Xb_one_aug = np.append(Xb_one, Ye_assim, axis=0)
@@ -214,10 +215,12 @@ class ReconJob:
                           verbose=verbose, seed=seed, print_proxy_count=print_proxy_count)
         self.load_ye_files(ye_filesdict=ye_filesdict, verbose=verbose)
 
-        if mode == 'lite':
-            self.run_da_lite(recon_years=recon_years, verbose=verbose)
-        else:
-            self.run_da(recon_years=recon_years, verbose=verbose)
+        run_da_func = {
+            'lite': self.run_da_lite,
+            'normal': self.run_da,
+        }
+
+        run_da_func[mode](recon_years=recon_years, verbose=verbose)
 
         if save_dirpath:
             os.makedirs(save_dirpath, exist_ok=True)
