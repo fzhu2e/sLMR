@@ -47,6 +47,15 @@ def setup_cfg(cfg):
             for measure in measurements:
                 db_cfg.proxy_type_mapping[(type_name, measure)] = ptype
 
+    # PSM
+    cfg.psm_name_map = {
+        'Tree Rings_WidthPages2': 'tree_trw',
+        'Corals and Sclerosponges_d18O': 'coral_d18O',
+        'Ice Cores_d18O': 'ice_d18O',
+    }
+
+    cfg.psm_params_dict = None
+
     return cfg
 
 
@@ -140,6 +149,42 @@ def load_netcdf(filepath, verbose=False):
         datadict[f'{v}_sfc_Amon'] = d
 
     return datadict
+
+
+def get_nc_vars(filepath, varnames):
+    ''' Get variables from given ncfile
+    '''
+    var_list = []
+
+    if type(varnames) is str:
+        varnames = [varnames]
+
+    with xr.open_dataset(filepath) as ds:
+
+        for varname in varnames:
+            if varname == 'year':
+                year = ds['time.year'].values
+                month = ds['time.month'].values
+                day = ds['time.day'].values
+
+                year_float = []
+                for y, m, d in zip(year, month, day):
+                    date = datetime(year=y, month=m, day=d)
+                    fst_day = datetime(year=y, month=1, day=1)
+                    lst_day = datetime(year=y+1, month=1, day=1)
+                    year_part = date - fst_day
+                    year_length = lst_day - fst_day
+                    year_float.append(y + year_part/year_length)
+
+                var_list.append(np.asarray(year_float))
+
+            else:
+                var_list.append(ds[varname].values)
+
+    if len(var_list) == 1:
+        var_list = var_list[0]
+
+    return var_list
 
 
 def populate_ensemble(datadict, cfg, seed, verbose=False):
@@ -512,23 +557,31 @@ def make_grid(prior):
 
 
 def update_year_lite(target_year, cfg, Xb_one, grid, proxy_manager, ye_all, ye_all_coords,
-                     proxy_inds=None, da_solver='ESRF', verbose=False):
+                     Xb_one_aug, Xb_one_coords, X,
+                     ibeg_tas, iend_tas,
+                     proxy_inds=None, da_solver='ESRF',
+                     verbose=False):
 
     vY, vR, vP, vYe, vT, vYe_coords = get_valid_proxies(
         cfg, proxy_manager, target_year, ye_all, ye_all_coords, proxy_inds=proxy_inds, verbose=verbose)
 
-    da_update_func = {
-        'ESRF': Kalman_ESRF,
-        'optimal': Kalman_optimal,
-    }
-    xam, Xap = da_update_func[da_solver](vY, vR, vYe, Xb_one, loc_rad=cfg.core.loc_rad)
+    if da_solver == 'ESRF':
+        xam, Xap, Xa = Kalman_ESRF(
+            cfg, vY, vR, vYe, Xb_one,
+            proxy_manager, X, Xb_one_aug, Xb_one_coords, verbose=verbose
+        )
+    elif da_solver == 'optimal':
+        xam, Xap, _ = Kalman_optimal(vY, vR, vYe, Xb_one, verbose=verbose)
+    else:
+        raise ValueError('ERROR: Wrong da_solver!!!')
+
     nens = grid.nens
     gmt_ens = np.zeros(nens)
     nhmt_ens = np.zeros(nens)
     shmt_ens = np.zeros(nens)
 
     for k in range(nens):
-        xam_lalo = np.reshape(Xap[:, k], [grid.nlat, grid.nlon])
+        xam_lalo = np.reshape(Xa[ibeg_tas:iend_tas+1, k], [grid.nlat, grid.nlon])
         gmt_ens[k], nhmt_ens[k], shmt_ens[k] = global_hemispheric_means(xam_lalo, grid.lat)
 
     return gmt_ens, nhmt_ens, shmt_ens
@@ -547,9 +600,8 @@ def update_year(yr_idx, target_year,
     Xb = Xb_one_aug.copy()
 
     nens = grid.nens
-    gmt_ens = np.zeros(nens)
-    nhmt_ens = np.zeros(nens)
-    shmt_ens = np.zeros(nens)
+
+    inflate = cfg.core.inflation_fact
 
     for proxy_idx, Y in enumerate(sites_assim_proxy_objs):
         try:
@@ -566,16 +618,13 @@ def update_year(yr_idx, target_year,
         except KeyError:
             continue  # skip to next loop iteration (proxy record)
 
-        if cfg.core.loc_rad is not None:
-            loc = cov_localization(cfg.core.loc_rad, Y, X, Xb_one_coords)
+        loc = cov_localization(cfg.core.loc_rad, Y, X, Xb_one_coords)
 
         Ye = Xb[proxy_idx - (assim_proxy_count+eval_proxy_count)]
 
-        ob_err = Y.psm_obj.R
-        if nYobs > 1:
-            ob_err = ob_err/float(nYobs)
+        ob_err = Y.psm_obj.R/float(nYobs)
 
-        Xa = enkf_update_array(Xb, Yobs, Ye, ob_err, loc, cfg.core.inflate)
+        Xa = enkf_update_array(Xb, Yobs, Ye, ob_err, loc=loc, inflate=inflate)
 
         xbvar = Xb.var(axis=1, ddof=1)
         xavar = Xa.var(axis=1, ddof=1)
@@ -589,9 +638,9 @@ def update_year(yr_idx, target_year,
 
         Xb = Xa
 
-        for k in range(grid.nens):
-            xam_lalo = Xa[ibeg_tas:iend_tas+1, k].reshape(grid.nlat, grid.nlon)
-            gmt_ens[k], nhmt_ens[k], shmt_ens[k] = global_hemispheric_means(xam_lalo, grid.lat)
+    xam_lalo = Xa[ibeg_tas:iend_tas+1, :].T.reshape(grid.nens, grid.nlat, grid.nlon)
+
+    gmt_ens, nhmt_ens, shmt_ens = global_hemispheric_means(xam_lalo, grid.lat)
 
     return gmt_ens, nhmt_ens, shmt_ens
 
@@ -1153,7 +1202,8 @@ def Kalman_optimal(Y, vR, Ye, Xb, loc_rad=None, nsvs=None, transform_only=False,
     return xam, Xap, SVD
 
 
-def Kalman_ESRF(vY, vR, vYe, Xb_in, loc_rad=None, verbose=False):
+def Kalman_ESRF(cfg, vY, vR, vYe, Xb_in,
+                proxy_manager, X, Xb_one_aug, Xb_one_coords, verbose=False):
 
     if verbose:
         print('Ensemble square root filter...')
@@ -1164,7 +1214,10 @@ def Kalman_ESRF(vY, vR, vYe, Xb_in, loc_rad=None, verbose=False):
     nx = Xb_in.shape[0]
 
     # augmented state vector with Ye appended
-    Xb = np.append(Xb_in, vYe, axis=0)
+    # Xb = np.append(Xb_in, vYe, axis=0)
+    Xb = Xb_one_aug
+
+    inflate = cfg.core.inflation_fact
 
     # need to add code block to compute localization factor
     nobs = len(vY)
@@ -1174,7 +1227,9 @@ def Kalman_ESRF(vY, vR, vYe, Xb_in, loc_rad=None, verbose=False):
         obvalue = vY[k]
         ob_err = vR[k]
         Ye = Xb[nx+k,:]
-        Xa = enkf_update_array(Xb, obvalue, Ye, ob_err, loc=None, inflate=None)
+        Y = proxy_manager.sites_assim_proxy_objs[k]
+        loc = cov_localization(cfg.core.loc_rad, Y, X, Xb_one_coords)
+        Xa = enkf_update_array(Xb, obvalue, Ye, ob_err, loc=loc, inflate=inflate)
         Xb = Xa
 
     # ensemble mean and perturbations
@@ -1187,4 +1242,4 @@ def Kalman_ESRF(vY, vR, vYe, Xb_in, loc_rad=None, verbose=False):
         print('completed in ' + str(elapsed_time) + ' seconds')
         print('-----------------------------------------------------')
 
-    return xam, Xap
+    return xam, Xap, Xa

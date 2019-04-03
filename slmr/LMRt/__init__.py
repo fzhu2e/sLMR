@@ -18,12 +18,13 @@ from collections import namedtuple
 import numpy as np
 import pickle
 from tqdm import tqdm
+from prysm.api import forward
 
 from . import utils
 
 ProxyManager = namedtuple(
     'ProxyManager',
-    ['all_proxies', 'ind_assim', 'ind_eval', 'sites_assim_proxy_objs', 'sites_eval_proxy_objs']
+    ['all_proxies', 'ind_assim', 'ind_eval', 'sites_assim_proxy_objs', 'sites_eval_proxy_objs', 'ptypes']
 )
 
 Prior = namedtuple('Prior', ['prior_dict', 'ens', 'prior_sample_indices', 'coords', 'full_state_info', 'trunc_state_info'])
@@ -69,7 +70,18 @@ class ReconJob:
         for i in ind_eval:
             sites_eval_proxy_objs.append(all_proxies[i])
 
-        self.proxy_manager = ProxyManager(all_proxies, ind_assim, ind_eval, sites_assim_proxy_objs, sites_eval_proxy_objs)
+        ptypes = []
+        for pobj in all_proxies:
+            ptypes.append(pobj.type)
+
+        ptypes = sorted(list(set(ptypes)))
+
+        self.proxy_manager = ProxyManager(
+            all_proxies,
+            ind_assim, ind_eval,
+            sites_assim_proxy_objs, sites_eval_proxy_objs,
+            ptypes
+        )
         print(f'pid={os.getpid()} >>> job.proxy_manager created')
 
         if print_proxy_count:
@@ -99,10 +111,58 @@ class ReconJob:
             self.prior = Prior(prior_dict, ens, prior_sample_indices, coords, full_state_info, trunc_state_info)
             print(f'pid={os.getpid()} >>> job.prior regridded')
 
-    def build_ye_files(self, prior_filepath, verbose=False):
-        if verbose:
-            print(f'Starting Ye precalculation using prior data from {prior_filepath}')
-        pass
+    def build_ye_files(self, prior_filesdict, ye_savepath, ptype, psm_name, verbose=False, **psm_params):
+        ''' Build precalculated Ye files from priors
+
+        Args:
+            prior_filesdict (dict): e.g. {'tas': tas_filepath, 'pr': pr_filepath}
+            ye_savepath (str): the filepath to save precalculated Ye
+        '''
+        prior_vars = {}
+
+        first_item = True
+        for prior_varname, prior_filepath in prior_filesdict.items():
+            if verbose:
+                print(f'pid={os.getpid()} >>> Loading [{prior_varname}] from {prior_filepath} ...')
+            if first_item:
+                time_model, lat_model, lon_model, prior_vars[prior_varname] = utils.get_nc_vars(
+                    prior_filepath, ['year', 'lat', 'lon', prior_varname]
+                )
+                first_item = False
+            else:
+                prior_vars[prior_varname] = utils.get_nc_vars(prior_filepath, prior_varname)
+
+        tas = prior_vars['tas'] if 'tas' in prior_vars.keys() else None
+        pr = prior_vars['pr'] if 'pr' in prior_vars.keys() else None
+        psl = prior_vars['psl'] if 'psl' in prior_vars.keys() else None
+        d18Opr = prior_vars['d18O'] if 'd18O' in prior_vars.keys() else None
+        d18Ocoral = prior_vars['d18Ocoral'] if 'd18Ocoral' in prior_vars.keys() else None
+        sss = prior_vars['sss'] if 'sss' in prior_vars.keys() else None
+        sst = prior_vars['sst'] if 'sst' in prior_vars.keys() else None
+
+        pid_map = {}
+        ye_out = []
+        for idx, pobj in enumerate(self.proxy_manager.all_proxies):
+            if pobj.type == ptype:
+                if verbose:
+                    print(f'\nProcessing #{idx+1} - {pobj.id} ...')
+                ye_tmp, _ = forward(
+                    psm_name, pobj.lat, pobj.lon, lat_model, lon_model, time_model,
+                    tas=tas, pr=pr, psl=psl, d18Opr=d18Opr, d18Ocoral=d18Ocoral, sst=sst, sss=sss,
+                    verbose=verbose,
+                    **psm_params,
+                )
+                ye_out.append(ye_tmp)
+                pid_map[pobj.id] = idx
+            else:
+                # PSM not available; skip
+                continue
+
+        ye_out = np.asarray(ye_out)
+
+        np.savez(ye_savepath, pid_index_map=pid_map, ye_vals=ye_out)
+
+        print(f'\npid={os.getpid()} >>> Saving Ye to {ye_savepath}')
 
     def load_ye_files(self, ye_filesdict, verbose=False):
         ''' Load precalculated Ye files
@@ -132,6 +192,11 @@ class ReconJob:
         proxy_manager = self.proxy_manager
         Ye_assim = self.ye.Ye_assim
         Ye_assim_coords = self.ye.Ye_assim_coords
+        Ye_eval = self.ye.Ye_eval
+        Ye_eval_coords = self.ye.Ye_eval_coords
+
+        ibeg_tas = prior.trunc_state_info['tas_sfc_Amon']['pos'][0]
+        iend_tas = prior.trunc_state_info['tas_sfc_Amon']['pos'][1]
 
         if recon_years is None:
             yr_start = cfg.core.recon_period[0]
@@ -139,9 +204,14 @@ class ReconJob:
             recon_years = list(range(yr_start, yr_end))
         else:
             yr_start, yr_end = recon_years[0], recon_years[-1]-1
-        print(f'pid={os.getpid()} >>> Recon. period: [{yr_start}, {yr_end})')
+        print(f'\npid={os.getpid()} >>> Recon. period: [{yr_start}, {yr_end})')
 
         Xb_one = prior.ens
+        Xb_one_aug = np.append(Xb_one, Ye_assim, axis=0)
+        Xb_one_aug = np.append(Xb_one_aug, Ye_eval, axis=0)
+        Xb_one_coords = np.append(prior.coords, Ye_assim_coords, axis=0)
+        Xb_one_coords = np.append(Xb_one_coords, Ye_eval_coords, axis=0)
+
         grid = utils.make_grid(prior)
         nyr = len(recon_years)
 
@@ -151,11 +221,14 @@ class ReconJob:
 
         for yr_idx, target_year in enumerate(tqdm(recon_years, desc=f'KF updating (pid={os.getpid()})')):
             gmt_ens_save[yr_idx], nhmt_ens_save[yr_idx], shmt_ens_save[yr_idx] = utils.update_year_lite(
-                target_year, cfg, Xb_one, grid, proxy_manager, Ye_assim, Ye_assim_coords, da_solver=da_solver,
+                target_year, cfg, Xb_one, grid, proxy_manager, Ye_assim, Ye_assim_coords,
+                Xb_one_aug, Xb_one_coords, prior,
+                ibeg_tas, iend_tas,
+                da_solver=da_solver,
                 verbose=verbose)
 
         self.da = DA(gmt_ens_save, nhmt_ens_save, shmt_ens_save)
-        print(f'pid={os.getpid()} >>> job.da created')
+        print(f'\npid={os.getpid()} >>> job.da created')
 
     def run_da(self, recon_years=None, proxy_inds=None, verbose=False):
         cfg = self.cfg
@@ -179,7 +252,7 @@ class ReconJob:
             recon_years = list(range(yr_start, yr_end))
         else:
             yr_start, yr_end = recon_years[0], recon_years[-1]-1
-        print(f'pid={os.getpid()} >>> Recon. period: [{yr_start}, {yr_end})')
+        print(f'\npid={os.getpid()} >>> Recon. period: [{yr_start}, {yr_end})')
 
         Xb_one = prior.ens
         Xb_one_aug = np.append(Xb_one, Ye_assim, axis=0)
@@ -204,7 +277,7 @@ class ReconJob:
             )
 
         self.da = DA(gmt_ens_save, nhmt_ens_save, shmt_ens_save)
-        print(f'pid={os.getpid()} >>> job.da created')
+        print(f'\npid={os.getpid()} >>> job.da created')
 
     def run(self, prior_filepath, db_proxies_filepath, db_metadata_filepath,
             recon_years=None, seed=0, precalib_filesdict=None, ye_filesdict=None,
@@ -225,6 +298,6 @@ class ReconJob:
         if save_dirpath:
             os.makedirs(save_dirpath, exist_ok=True)
             save_path = os.path.join(save_dirpath, f'job_r{seed:02d}.pkl')
-            print(f'pid={os.getpid()} >>> Saving job.da to: {save_path}')
+            print(f'\npid={os.getpid()} >>> Saving job.da to: {save_path}')
             with open(save_path, 'wb') as f:
                 pickle.dump([self.cfg, self.da], f)
