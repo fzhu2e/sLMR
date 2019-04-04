@@ -2,6 +2,9 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
 from matplotlib.ticker import ScalarFormatter, FormatStrFormatter
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+import matplotlib as mpl
 import numpy as np
 import pandas as pd
 import os
@@ -305,3 +308,90 @@ def global_hemispheric_means(field,lat):
 
 
     return gm,nhm,shm
+
+
+def plot_vslite_params(lat_obs, lon_obs, T1, T2, M1, M2,
+                       T1_ticks=None, T2_ticks=None, M1_ticks=None, M2_ticks=None, save_path=None):
+    sns.set(style='ticks', font_scale=2)
+    fig = plt.figure(figsize=[18, 12])
+    gs = mpl.gridspec.GridSpec(2, 2)
+    gs.update(wspace=0.1, hspace=0.1)
+
+    map_proj = ccrs.Robinson()
+    # map_proj = ccrs.PlateCarree()
+    # map_proj = ccrs.Mercator()
+    # map_proj = ccrs.Miller()
+    # map_proj = ccrs.Mollweide()
+    # map_proj = ccrs.EqualEarth()
+
+    pad = 0.05
+    fraction = 0.05
+
+    # T1
+    ax1 = plt.subplot(gs[0, 0], projection=map_proj)
+    ax1.set_title('T1')
+    ax1.set_global()
+    ax1.add_feature(cfeature.LAND, facecolor='gray', alpha=0.3)
+    ax1.gridlines(edgecolor='gray', linestyle=':')
+    z = T1
+    norm = mpl.colors.Normalize(vmin=np.min(z), vmax=np.max(z))
+    im = ax1.scatter(
+        lon_obs, lat_obs, marker='o', norm=norm,
+        c=z, cmap='Reds', s=20, transform=ccrs.Geodetic()
+    )
+    cbar1 = fig.colorbar(im, ax=ax1, orientation='horizontal', pad=pad, fraction=fraction)
+    if T1_ticks:
+        cbar1.set_ticks(T1_ticks)
+
+    # T2
+    ax2 = plt.subplot(gs[0, 1], projection=map_proj)
+    ax2.set_title('T2')
+    ax2.set_global()
+    ax2.add_feature(cfeature.LAND, facecolor='gray', alpha=0.3)
+    ax2.gridlines(edgecolor='gray', linestyle=':')
+    z = T2
+    norm = mpl.colors.Normalize(vmin=np.min(z), vmax=np.max(z))
+    im = ax2.scatter(
+        lon_obs, lat_obs, marker='o', norm=norm,
+        c=z, cmap='Reds', s=20, transform=ccrs.Geodetic()
+    )
+    cbar2 = fig.colorbar(im, ax=ax2, orientation='horizontal', pad=pad, fraction=fraction)
+    if T2_ticks:
+        cbar2.set_ticks(T2_ticks)
+
+    # M1
+    ax3 = plt.subplot(gs[1, 0], projection=map_proj)
+    ax3.set_title('M1')
+    ax3.set_global()
+    ax3.add_feature(cfeature.LAND, facecolor='gray', alpha=0.3)
+    ax3.gridlines(edgecolor='gray', linestyle=':')
+    z = M1
+    norm = mpl.colors.Normalize(vmin=np.min(z), vmax=np.max(z))
+    im = ax3.scatter(
+        lon_obs, lat_obs, marker='o', norm=norm,
+        c=z, cmap='Blues', s=20, transform=ccrs.Geodetic()
+    )
+    cbar3 = fig.colorbar(im, ax=ax3, orientation='horizontal', pad=pad, fraction=fraction)
+    if M1_ticks:
+        cbar3.set_ticks(M1_ticks)
+
+    # M2
+    ax4 = plt.subplot(gs[1, 1], projection=map_proj)
+    ax4.set_title('M2')
+    ax4.set_global()
+    ax4.add_feature(cfeature.LAND, facecolor='gray', alpha=0.3)
+    ax4.gridlines(edgecolor='gray', linestyle=':')
+    z = M2
+    norm = mpl.colors.Normalize(vmin=np.min(z), vmax=np.max(z))
+    im = ax4.scatter(
+        lon_obs, lat_obs, marker='o', norm=norm,
+        c=z, cmap='Blues', s=20, transform=ccrs.Geodetic()
+    )
+    cbar4 = fig.colorbar(im, ax=ax4, orientation='horizontal', pad=pad, fraction=fraction)
+    if M2_ticks:
+        cbar4.set_ticks(M2_ticks)
+
+    if save_path:
+        plt.savefig(save_path, bbox_inches='tight')
+
+    return fig

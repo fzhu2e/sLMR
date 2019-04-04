@@ -3,14 +3,17 @@
 import numpy as np
 import pandas as pd
 from collections import namedtuple
-from collections import Mapping
-from copy import deepcopy
 from time import time
 import functools
 import xarray as xr
+import netCDF4
 from datetime import datetime
 import random
-from spharm import Spharmt, getspecindx, regrid
+from spharm import Spharmt, regrid
+from prysm.api import forward
+import os
+from tqdm import tqdm
+import pickle
 
 Proxy = namedtuple(
     'Proxy',
@@ -46,15 +49,6 @@ def setup_cfg(cfg):
             type_name = ptype.split('_', 1)[0]
             for measure in measurements:
                 db_cfg.proxy_type_mapping[(type_name, measure)] = ptype
-
-    # PSM
-    cfg.psm_name_map = {
-        'Tree Rings_WidthPages2': 'tree_trw',
-        'Corals and Sclerosponges_d18O': 'coral_d18O',
-        'Ice Cores_d18O': 'ice_d18O',
-    }
-
-    cfg.psm_params_dict = None
 
     return cfg
 
@@ -151,7 +145,7 @@ def load_netcdf(filepath, verbose=False):
     return datadict
 
 
-def get_nc_vars(filepath, varnames):
+def get_nc_vars(filepath, varnames, useLib='netCDF4'):
     ''' Get variables from given ncfile
     '''
     var_list = []
@@ -159,27 +153,69 @@ def get_nc_vars(filepath, varnames):
     if type(varnames) is str:
         varnames = [varnames]
 
-    with xr.open_dataset(filepath) as ds:
+    def load_with_xarray():
+        with xr.open_dataset(filepath) as ds:
 
-        for varname in varnames:
-            if varname == 'year':
-                year = ds['time.year'].values
-                month = ds['time.month'].values
-                day = ds['time.day'].values
+            for varname in varnames:
+                if varname == 'year':
+                    year = ds['time.year'].values
+                    month = ds['time.month'].values
+                    day = ds['time.day'].values
 
-                year_float = []
-                for y, m, d in zip(year, month, day):
-                    date = datetime(year=y, month=m, day=d)
-                    fst_day = datetime(year=y, month=1, day=1)
-                    lst_day = datetime(year=y+1, month=1, day=1)
-                    year_part = date - fst_day
-                    year_length = lst_day - fst_day
-                    year_float.append(y + year_part/year_length)
+                    year_float = []
+                    for y, m, d in zip(year, month, day):
+                        date = datetime(year=y, month=m, day=d)
+                        fst_day = datetime(year=y, month=1, day=1)
+                        lst_day = datetime(year=y+1, month=1, day=1)
+                        year_part = date - fst_day
+                        year_length = lst_day - fst_day
+                        year_float.append(y + year_part/year_length)
 
-                var_list.append(np.asarray(year_float))
+                    var_list.append(np.asarray(year_float))
 
-            else:
-                var_list.append(ds[varname].values)
+                else:
+                    var_tmp = ds[varname].values
+                    if varname == 'lon':
+                        if np.min(var_tmp) < 0:
+                            var_tmp = np.mod(var_tmp, 360)  # convert from (-180, 180) to (0, 360)
+                    var_list.append(var_tmp)
+
+        return var_list
+
+    def load_with_netCDF4():
+        with netCDF4.Dataset(filepath, 'r') as ds:
+            for varname in varnames:
+                if varname == 'year':
+                    time = ds.variables['time']
+                    time_convert = netCDF4.num2date(time[:], time.units, time.calendar)
+
+                    year_float = []
+                    for t in time_convert:
+                        y, m, d = t.year, t.month, t.day
+                        date = datetime(year=y, month=m, day=d)
+                        fst_day = datetime(year=y, month=1, day=1)
+                        lst_day = datetime(year=y+1, month=1, day=1)
+                        year_part = date - fst_day
+                        year_length = lst_day - fst_day
+                        year_float.append(y + year_part/year_length)
+
+                    var_list.append(np.asarray(year_float))
+
+                else:
+                    var_tmp = np.asarray(ds.variables[varname])
+                    if varname == 'lon':
+                        if np.min(var_tmp) < 0:
+                            var_tmp = np.mod(var_tmp, 360)  # convert from (-180, 180) to (0, 360)
+                    var_list.append(var_tmp)
+
+        return var_list
+
+    load_nc = {
+        'xarray': load_with_xarray,
+        'netCDF4': load_with_netCDF4,
+    }
+
+    var_list = load_nc[useLib]()
 
     if len(var_list) == 1:
         var_list = var_list[0]
@@ -409,9 +445,8 @@ def get_proxy(cfg, proxies_df_filepath, metadata_df_filepath, precalib_filesdict
 
         # check if pre-calibration files are provided
 
-        if precalib_filesdict:
+        if precalib_filesdict and psm_key in precalib_filesdict.keys():
             psm_data = pd.read_pickle(precalib_filesdict[psm_key])
-
             try:
                 psm_site_data = psm_data[(proxy_type, site)]
                 psm_obj = PSM(psm_key, psm_site_data['PSMmse'])
@@ -419,7 +454,8 @@ def get_proxy(cfg, proxies_df_filepath, metadata_df_filepath, precalib_filesdict
                 all_proxies.append(pobj)
                 picked_proxy_ids.append(site)
             except KeyError:
-                err_msg = f'Proxy in database but not found in pre-calibration file {precalib_filesdict[psm_key]}...\nSkipping: {site}'
+                #  err_msg = f'Proxy in database but not found in pre-calibration file {precalib_filesdict[psm_key]}...\nSkipping: {site}'
+                err_msg = f'Proxy in database but not found in pre-calibration files...\nSkipping: {site}'
                 if verbose:
                     print(err_msg)
         else:
@@ -430,6 +466,237 @@ def get_proxy(cfg, proxies_df_filepath, metadata_df_filepath, precalib_filesdict
             picked_proxy_ids.append(site)
 
     return picked_proxy_ids, all_proxies
+
+
+def get_prior_vars(prior_filesdict, rename_vars={'d18O': 'd18Opr', 'tos': 'sst', 'sos': 'sss'},
+                   useLib='netCDF4', verbose=False):
+    prior_vars = {}
+
+    first_item = True
+    for prior_varname, prior_filepath in prior_filesdict.items():
+        if verbose:
+            print(f'Loading [{prior_varname}] from {prior_filepath} ...')
+        if first_item:
+            time_model, lat_model, lon_model, prior_vars[prior_varname] = get_nc_vars(
+                prior_filepath, ['year', 'lat', 'lon', prior_varname], useLib=useLib,
+            )
+            first_item = False
+        else:
+            prior_vars[prior_varname] = get_nc_vars(prior_filepath, prior_varname)
+
+    if rename_vars:
+        for old_name, new_name in rename_vars.items():
+            if old_name in prior_vars:
+                prior_vars[new_name] = prior_vars.pop(old_name)
+
+    return lat_model, lon_model, time_model, prior_vars
+
+
+def calc_ye(proxy_manager, ptype, psm_name,
+            lat_model, lon_model, time_model,
+            prior_vars, verbose=False, **psm_params):
+    pid_map = {}
+    ye_out = []
+    count = 0
+
+    if 'vslite_params_path' in psm_params:
+        # load parameters for VS-Lite
+        with open(psm_params['vslite_params_path'], 'rb') as f:
+            res = pickle.load(f)
+            pid_obs = res['pid_obs']
+            T1 = res['T1']
+            T2 = res['T2']
+            M1 = res['M1']
+            M2 = res['M2']
+
+    for idx, pobj in enumerate(proxy_manager.all_proxies):
+        if pobj.type == ptype:
+            count += 1
+            if verbose:
+                print(f'\nProcessing #{count} - {pobj.id} ...')
+
+            if 'vslite_params_path' in psm_params and pobj.id in pid_obs:
+                # load parameters for VS-Lite
+                ind = pid_obs.index(pobj.id)
+                psm_params['T1'] = T1[ind]
+                psm_params['T2'] = T2[ind]
+                psm_params['M1'] = M1[ind]
+                psm_params['M2'] = M2[ind]
+
+            ye_tmp, _ = forward(
+                psm_name, pobj.lat, pobj.lon,
+                lat_model, lon_model, time_model,
+                prior_vars, verbose=verbose, **psm_params,
+            )
+            ye_out.append(ye_tmp)
+            pid_map[pobj.id] = idx
+        else:
+            # PSM not available; skip
+            continue
+
+    ye_out = np.asarray(ye_out)
+
+    return pid_map, ye_out
+
+
+def est_vslite_params(proxy_manager, tas_filepath, pr_filepath,
+                      matlab_path=None, func_path=None, restart_matlab_period=100,
+                      lat_lon_idx_path=None, seed=0, verbose=False):
+    from pymatbridge import Matlab
+
+    pid_obs = []
+    lat_obs = []
+    lon_obs = []
+    values_obs = []
+    for idx, pobj in enumerate(proxy_manager.all_proxies):
+        if pobj.psm_obj.psm_key == 'prysm.vslite':
+            lat_obs.append(pobj.lat)
+            lon_obs.append(pobj.lon)
+            values_obs.append(pobj.values)
+            pid_obs.append(pobj.id)
+
+    lat_grid, lon_grid, time_grid, tas = get_nc_vars(tas_filepath, ['lat', 'lon', 'year', 'tmp'])
+    pr = get_nc_vars(pr_filepath, ['pre'])
+
+    if lat_lon_idx_path is None:
+        import p2k
+        lat_ind, lon_ind = p2k.find_closest_loc(lat_grid, lon_grid, lat_obs, lon_obs, mode='latlon')
+    else:
+        with open(lat_lon_idx_path, 'rb') as f:
+            lat_ind, lon_ind = pickle.load(f)
+
+    T = tas[:, lat_ind, lon_ind]
+    P = pr[:, lat_ind, lon_ind]
+
+    if matlab_path is None:
+        raise ValueError('ERROR: matlab_path must be set!')
+    if func_path is None:
+        root_path = os.path.dirname(__file__)
+        func_path = os.path.join(root_path, 'estimate_vslite_params_v2_3.m')
+        if verbose:
+            print(func_path)
+
+    mlab = Matlab(matlab_path)
+    mlab.start()
+
+    T1 = []
+    T2 = []
+    M1 = []
+    M2 = []
+
+    for i, trw_data in enumerate(tqdm(values_obs)):
+        if verbose:
+            print(f'#{i+1} - Target: ({lat_obs[i]}, {lon_obs[i]}); Found: ({lat_grid[lat_ind[i]]:.2f}, {lon_grid[lon_ind[i]]:.2f});', end=' ')
+        trw_year = np.asarray(trw_data.index)
+        trw_value = np.asarray(trw_data.values)
+        trw_year, trw_value = pick_range(trw_year, trw_value, 1901, 2001)
+        grid_year, grid_tas = pick_years(trw_year, time_grid, T[:, i])
+        grid_year, grid_pr = pick_years(trw_year, time_grid, P[:, i])
+        nyr = int(len(grid_year)/12)
+
+        if verbose:
+            print(f'{nyr} available years')
+            print(f'Running estimate_vslite_params_v2_3.m ...', end=' ')
+
+        # restart Matlab kernel
+        if np.mod(i+1, restart_matlab_period) == 0:
+            mlab.stop()
+            mlab.start()
+
+        start_time = time()
+        res = mlab.run_func(
+            func_path,
+            grid_tas.reshape(nyr, 12).T, grid_pr.reshape(nyr, 12).T, lat_obs[i], trw_value,
+            'seed', seed,
+            nargout=4,
+        )
+
+        used_time = time() - start_time
+        if verbose:
+            print(res)
+            print(f'{used_time:.2f} sec')
+
+        T1_tmp = res['result'][0]
+        T2_tmp = res['result'][1]
+        M1_tmp = res['result'][2]
+        M2_tmp = res['result'][3]
+
+        if verbose:
+            print(f'T1={T1_tmp}, T2={T2_tmp}, M1={M1_tmp}, M2={M2_tmp}\n')
+
+        T1.append(T1_tmp)
+        T2.append(T2_tmp)
+        M1.append(M1_tmp)
+        M2.append(M2_tmp)
+
+    res_dict = {
+        'pid_obs': pid_obs,
+        'lat_obs': lat_obs,
+        'lon_obs': lon_obs,
+        'values_obs': values_obs,
+        'T1': T1,
+        'T2': T2,
+        'M1': M1,
+        'M2': M2,
+    }
+
+    return res_dict
+
+
+def pick_range(ts, ys, lb, ub):
+    ''' Pick range [lb, ub) from a timeseries pair (ts, ys)
+    '''
+    range_mask = (ts >= lb) & (ts < ub)
+    return ts[range_mask], ys[range_mask]
+
+
+def pick_years(year_int, time_grid, var_grid):
+    ''' Pick years from a timeseries pair (time_grid, var_grid) based on year_int
+    '''
+    year_int = [int(y) for y in year_int]
+    mask = []
+    for year_float in time_grid:
+        if int(year_float) in year_int:
+            mask.append(True)
+        else:
+            mask.append(False)
+    return time_grid[mask], var_grid[mask]
+
+
+def calibrate_psm(proxy_manager, ptype, psm_name,
+                  lat_model, lon_model, time_model,
+                  inst_vars, verbose=False, **psm_params):
+    precalib_dict = {}
+    count = 0
+
+    start_yr = int(time_model[0])
+    end_yr = int(time_model[-1])
+
+    for idx, pobj in enumerate(proxy_manager.all_proxies):
+        if pobj.type == ptype:
+            count += 1
+            if verbose:
+                print(f'\nProcessing #{count} - {pobj.id} ...')
+            ye_tmp, _ = forward(
+                psm_name, pobj.lat, pobj.lon,
+                lat_model, lon_model, time_model,
+                inst_vars, verbose=verbose, **psm_params,
+            )
+
+            #  Yvals = Y.values[(Y.values.index > start_yr) & (Y.values.index <= end_yr)]
+            proxy_value = pobj.values[(pobj.values.index >= start_yr) & (pobj.values.index <= end_yr)]
+
+            resid = ye_tmp - proxy_value
+            PSMmse = np.mean((resid) ** 2)
+
+            precalib_dict[(pobj.type, pobj.id)] = {
+                'PSMmse': PSMmse,
+            }
+        else:
+            # PSM not available; skip
+            continue
+
+    return precalib_dict
 
 
 def generate_proxy_ind(cfg, nsites, seed):
@@ -598,8 +865,6 @@ def update_year(yr_idx, target_year,
     end_yr = int(target_year+recon_timescale//2)
 
     Xb = Xb_one_aug.copy()
-
-    nens = grid.nens
 
     inflate = cfg.core.inflation_fact
 

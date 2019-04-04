@@ -18,13 +18,12 @@ from collections import namedtuple
 import numpy as np
 import pickle
 from tqdm import tqdm
-from prysm.api import forward
 
 from . import utils
 
 ProxyManager = namedtuple(
     'ProxyManager',
-    ['all_proxies', 'ind_assim', 'ind_eval', 'sites_assim_proxy_objs', 'sites_eval_proxy_objs', 'ptypes']
+    ['all_proxies', 'ind_assim', 'ind_eval', 'sites_assim_proxy_objs', 'sites_eval_proxy_objs', 'proxy_type_list']
 )
 
 Prior = namedtuple('Prior', ['prior_dict', 'ens', 'prior_sample_indices', 'coords', 'full_state_info', 'trunc_state_info'])
@@ -41,21 +40,21 @@ class ReconJob:
     def __init__(self):
         pwd = os.path.dirname(__file__)
         with open(os.path.join(pwd, './cfg/cfg_template.yml'), 'r') as f:
-            cfg_dict = yaml.load(f)
+            cfg_dict = yaml.load(f, Loader=yaml.FullLoader)
             self.cfg = DotMap(cfg_dict)
             self.cfg = utils.setup_cfg(self.cfg)
             print(f'pid={os.getpid()} >>> job.cfg created')
 
     def load_cfg(self, cfg_filepath):
         with open(cfg_filepath, 'r') as f:
-            cfg_new = yaml.load(f)
+            cfg_new = yaml.load(f, Loader=yaml.FullLoader)
 
         self.cfg = DotMap(cfg_new)
         self.cfg = utils.setup_cfg(self.cfg)
         print(f'pid={os.getpid()} >>> job.cfg updated')
 
     def load_proxies(self, proxies_df_filepath, metadata_df_filepath, precalib_filesdict=None,
-                     seed=0, verbose=False, print_proxy_count=True):
+                     seed=0, verbose=False, print_assim_proxy_count=False, print_proxy_type_list=False):
 
         all_proxy_ids, all_proxies = utils.get_proxy(self.cfg, proxies_df_filepath, metadata_df_filepath,
                                                      precalib_filesdict=precalib_filesdict, verbose=verbose)
@@ -71,20 +70,29 @@ class ReconJob:
             sites_eval_proxy_objs.append(all_proxies[i])
 
         ptypes = []
+        ptype_count = {}
         for pobj in all_proxies:
-            ptypes.append(pobj.type)
+            ptype = pobj.type
+            ptypes.append(ptype)
+            if ptype not in ptype_count.keys():
+                ptype_count[ptype] = 1
+            else:
+                ptype_count[ptype] += 1
 
         ptypes = sorted(list(set(ptypes)))
+        proxy_type_list = []
+        for ptype in ptypes:
+            proxy_type_list.append((ptype, ptype_count[ptype]))
 
         self.proxy_manager = ProxyManager(
             all_proxies,
             ind_assim, ind_eval,
             sites_assim_proxy_objs, sites_eval_proxy_objs,
-            ptypes
+            proxy_type_list
         )
         print(f'pid={os.getpid()} >>> job.proxy_manager created')
 
-        if print_proxy_count:
+        if print_assim_proxy_count:
             assim_sites_types = {}
             for pobj in self.proxy_manager.sites_assim_proxy_objs:
                 if pobj.type not in assim_sites_types:
@@ -99,6 +107,14 @@ class ReconJob:
 
             print(f'{"TOTAL":>45s}:{assim_proxy_count:5d}')
 
+        if print_proxy_type_list:
+            print('\nProxy types')
+            print('--------------')
+            for ptype, count in self.proxy_manager.proxy_type_list:
+                print(f'{ptype:>45s}:{count:5d}')
+
+            print(f'{"TOTAL":>45s}:{len(self.proxy_manager.all_proxies):5d}')
+
     def load_prior(self, prior_filepath, seed=0, verbose=False):
         prior_dict = utils.load_netcdf(prior_filepath, verbose=verbose)
         ens, prior_sample_indices, coords, full_state_info = utils.populate_ensemble(
@@ -111,58 +127,44 @@ class ReconJob:
             self.prior = Prior(prior_dict, ens, prior_sample_indices, coords, full_state_info, trunc_state_info)
             print(f'pid={os.getpid()} >>> job.prior regridded')
 
-    def build_ye_files(self, prior_filesdict, ye_savepath, ptype, psm_name, verbose=False, **psm_params):
+    def build_ye_files(self, ptype, psm_name, prior_filesdict, ye_savepath,
+                       rename_vars={'d18O': 'd18Opr', 'tos': 'sst', 'sos': 'sss'},
+                       verbose=False, useLib='netCDF4', **psm_params):
         ''' Build precalculated Ye files from priors
 
         Args:
+            ptype (str): the target proxy type
+            psm_name (str): the name of the PSM used to forward prior variables
             prior_filesdict (dict): e.g. {'tas': tas_filepath, 'pr': pr_filepath}
             ye_savepath (str): the filepath to save precalculated Ye
+            rename_vars (dict): a map used to rename the variable names,
+                e.g., {'d18O': 'd18Opr', 'tos': 'sst', 'sos': 'sss'}
+            psm_params (kwargs): the specific parameters for certain PSMs
+
         '''
-        prior_vars = {}
+        lat_model, lon_model, time_model, prior_vars = utils.get_prior_vars(
+            prior_filesdict, rename_vars=rename_vars, useLib=useLib, verbose=verbose)
 
-        first_item = True
-        for prior_varname, prior_filepath in prior_filesdict.items():
-            if verbose:
-                print(f'pid={os.getpid()} >>> Loading [{prior_varname}] from {prior_filepath} ...')
-            if first_item:
-                time_model, lat_model, lon_model, prior_vars[prior_varname] = utils.get_nc_vars(
-                    prior_filepath, ['year', 'lat', 'lon', prior_varname]
-                )
-                first_item = False
-            else:
-                prior_vars[prior_varname] = utils.get_nc_vars(prior_filepath, prior_varname)
-
-        tas = prior_vars['tas'] if 'tas' in prior_vars.keys() else None
-        pr = prior_vars['pr'] if 'pr' in prior_vars.keys() else None
-        psl = prior_vars['psl'] if 'psl' in prior_vars.keys() else None
-        d18Opr = prior_vars['d18O'] if 'd18O' in prior_vars.keys() else None
-        d18Ocoral = prior_vars['d18Ocoral'] if 'd18Ocoral' in prior_vars.keys() else None
-        sss = prior_vars['sss'] if 'sss' in prior_vars.keys() else None
-        sst = prior_vars['sst'] if 'sst' in prior_vars.keys() else None
-
-        pid_map = {}
-        ye_out = []
-        for idx, pobj in enumerate(self.proxy_manager.all_proxies):
-            if pobj.type == ptype:
-                if verbose:
-                    print(f'\nProcessing #{idx+1} - {pobj.id} ...')
-                ye_tmp, _ = forward(
-                    psm_name, pobj.lat, pobj.lon, lat_model, lon_model, time_model,
-                    tas=tas, pr=pr, psl=psl, d18Opr=d18Opr, d18Ocoral=d18Ocoral, sst=sst, sss=sss,
-                    verbose=verbose,
-                    **psm_params,
-                )
-                ye_out.append(ye_tmp)
-                pid_map[pobj.id] = idx
-            else:
-                # PSM not available; skip
-                continue
-
-        ye_out = np.asarray(ye_out)
+        pid_map, ye_out = utils.calc_ye(self.proxy_manager, ptype, psm_name,
+                                        lat_model, lon_model, time_model, prior_vars,
+                                        verbose=verbose, **psm_params)
 
         np.savez(ye_savepath, pid_index_map=pid_map, ye_vals=ye_out)
-
         print(f'\npid={os.getpid()} >>> Saving Ye to {ye_savepath}')
+
+    def build_precalib_files(self, ptype, psm_name, inst_filesdict, precalib_savepath, verbose=False, **psm_params):
+        ''' Build precalibration files
+        '''
+
+        lat_inst, lon_inst, time_inst, inst_vars = utils.get_prior_vars(inst_filesdict, useLib='xarray', verbose=verbose)
+
+        precalib_dict = utils.calibrate_psm(self.proxy_manager, ptype, psm_name,
+                                            lat_inst, lon_inst, time_inst, inst_vars,
+                                            verbose=verbose, **psm_params)
+
+        with open(precalib_savepath, 'wb') as f:
+            pickle.dump(precalib_dict, f)
+        print(f'\npid={os.getpid()} >>> Saving calibration results to {precalib_savepath}')
 
     def load_ye_files(self, ye_filesdict, verbose=False):
         ''' Load precalculated Ye files
