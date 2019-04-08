@@ -145,7 +145,7 @@ def load_netcdf(filepath, verbose=False):
     return datadict
 
 
-def get_nc_vars(filepath, varnames, useLib='netCDF4'):
+def get_nc_vars(filepath, varnames, useLib='netCDF4', annualize=False):
     ''' Get variables from given ncfile
     '''
     var_list = []
@@ -153,11 +153,14 @@ def get_nc_vars(filepath, varnames, useLib='netCDF4'):
     if type(varnames) is str:
         varnames = [varnames]
 
-    def load_with_xarray():
+    def load_with_xarray(annualize=False):
         with xr.open_dataset(filepath) as ds:
 
+            if annualize:
+                ds = ds.groupby('time.year').mean('time')
+
             for varname in varnames:
-                if varname == 'year':
+                if varname == 'year_float':
                     year = ds['time.year'].values
                     month = ds['time.month'].values
                     day = ds['time.day'].values
@@ -182,10 +185,11 @@ def get_nc_vars(filepath, varnames, useLib='netCDF4'):
 
         return var_list
 
-    def load_with_netCDF4():
+    def load_with_netCDF4(annualize=False):
+        # TODO: annualize
         with netCDF4.Dataset(filepath, 'r') as ds:
             for varname in varnames:
-                if varname == 'year':
+                if varname == 'year_float':
                     time = ds.variables['time']
                     time_convert = netCDF4.num2date(time[:], time.units, time.calendar)
 
@@ -202,7 +206,7 @@ def get_nc_vars(filepath, varnames, useLib='netCDF4'):
                     var_list.append(np.asarray(year_float))
 
                 else:
-                    var_tmp = np.asarray(ds.variables[varname])
+                    var_tmp = ds.variables[varname][:]
                     if varname == 'lon':
                         if np.min(var_tmp) < 0:
                             var_tmp = np.mod(var_tmp, 360)  # convert from (-180, 180) to (0, 360)
@@ -215,7 +219,7 @@ def get_nc_vars(filepath, varnames, useLib='netCDF4'):
         'netCDF4': load_with_netCDF4,
     }
 
-    var_list = load_nc[useLib]()
+    var_list = load_nc[useLib](annualize=annualize)
 
     if len(var_list) == 1:
         var_list = var_list[0]
@@ -477,8 +481,8 @@ def get_prior_vars(prior_filesdict, rename_vars={'d18O': 'd18Opr', 'tos': 'sst',
         if verbose:
             print(f'Loading [{prior_varname}] from {prior_filepath} ...')
         if first_item:
-            time_model, lat_model, lon_model, prior_vars[prior_varname] = get_nc_vars(
-                prior_filepath, ['year', 'lat', 'lon', prior_varname], useLib=useLib,
+            lat_model, lon_model, time_model, prior_vars[prior_varname] = get_nc_vars(
+                prior_filepath, ['lat', 'lon', 'year_float', prior_varname], useLib=useLib,
             )
             first_item = False
         else:
@@ -555,7 +559,7 @@ def est_vslite_params(proxy_manager, tas_filepath, pr_filepath,
             values_obs.append(pobj.values)
             pid_obs.append(pobj.id)
 
-    lat_grid, lon_grid, time_grid, tas = get_nc_vars(tas_filepath, ['lat', 'lon', 'year', 'tmp'])
+    lat_grid, lon_grid, time_grid, tas = get_nc_vars(tas_filepath, ['lat', 'lon', 'year_float', 'tmp'])
     pr = get_nc_vars(pr_filepath, ['pre'])
 
     if lat_lon_idx_path is None:
@@ -1359,7 +1363,8 @@ def global_hemispheric_means(field, lat):
 
 
 def Kalman_optimal(Y, vR, Ye, Xb, loc_rad=None, nsvs=None, transform_only=False, verbose=False):
-    """
+    ''' Kalman Filter
+
     Y: observation vector (p x 1)
     vR: observation error variance vector (p x 1)
     Ye: prior-estimated observation vector (p x n)
@@ -1373,7 +1378,8 @@ def Kalman_optimal(Y, vR, Ye, Xb, loc_rad=None, nsvs=None, transform_only=False,
 
     Modifications:
     11 April 2018: Fixed bug in handling singular value matrix (rectangular, not square)
-    """
+    '''
+
     if verbose:
         print('\n all-at-once solve...\n')
 
