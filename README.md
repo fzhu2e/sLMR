@@ -12,7 +12,9 @@ Python 3
 
 + [v0.1] Running LMR with [Slurm](https://slurm.schedmd.com/) on a cluster with just one command line
 + [v0.2] Post-processing: pick files with the same filename from different directories
-+ [v0.3] LMR Turbo (LMRt): the packaged version of the LMR framework with multiprocessing support ([a quickstart notebook](https://nbviewer.jupyter.org/github/fzhu2e/sLMR/blob/master/notebooks/01.lmrt_quickstart.ipynb))
++ [v0.3] LMR Turbo (LMRt): the packaged version of the LMR framework with multiprocessing support 
+    + [a quickstart notebook](https://nbviewer.jupyter.org/github/fzhu2e/sLMR/blob/master/notebooks/01.lmrt_quickstart.ipynb)
+    + [a notebook on building Ye files](https://nbviewer.jupyter.org/github/fzhu2e/sLMR/blob/master/notebooks/02.build_Ye.ipynb)
 
 ## How to install
 Simply

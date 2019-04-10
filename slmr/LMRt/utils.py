@@ -667,6 +667,30 @@ def pick_years(year_int, time_grid, var_grid):
     return time_grid[mask], var_grid[mask]
 
 
+def overlap_ts(time1, value1, time2, value2):
+    mask1 = []
+    for t1 in time1:
+        if t1 in time2:
+            mask1.append(True)
+        else:
+            mask1.append(False)
+
+    time1_overlap = time1[mask1]
+    value1_overlap = value1[mask1]
+
+    mask2 = []
+    for t2 in time2:
+        if t2 in time1_overlap:
+            mask2.append(True)
+        else:
+            mask2.append(False)
+
+    time2_overlap = time2[mask2]
+    value2_overlap = value2[mask2]
+
+    return time1_overlap, value1_overlap, time2_overlap, value2_overlap
+
+
 def calibrate_psm(proxy_manager, ptype, psm_name,
                   lat_model, lon_model, time_model,
                   inst_vars, verbose=False, **psm_params):
