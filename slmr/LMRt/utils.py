@@ -10,7 +10,7 @@ import netCDF4
 from datetime import datetime
 import random
 from spharm import Spharmt, regrid
-from prysm.api import forward
+import prysm
 import os
 from tqdm import tqdm
 import pickle
@@ -527,7 +527,7 @@ def calc_ye(proxy_manager, ptype, psm_name,
                 psm_params['M1'] = M1[ind]
                 psm_params['M2'] = M2[ind]
 
-            ye_tmp, _ = forward(
+            ye_tmp, _ = prysm.forward(
                 psm_name, pobj.lat, pobj.lon,
                 lat_model, lon_model, time_model,
                 prior_vars, verbose=verbose, **psm_params,
