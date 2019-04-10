@@ -14,10 +14,12 @@ setup(
     author_email='fengzhu@usc.edu',
     url='https://github.com/fzhu2e/slmr',
     packages=find_packages(),
-    include_package_data=True,
     license="MIT license",
     zip_safe=False,
     scripts=['bin/slmr'],
+    package_data={
+        'slmr': ['LMRt/cfg/*.yml']
+    },
     keywords='slmr',
     classifiers=[
         'License :: OSI Approved :: MIT License',
