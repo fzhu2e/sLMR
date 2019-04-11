@@ -5,8 +5,14 @@
 This is a scripting system for the Last Millennium Reanalysis project,
 or [LMR](https://atmos.washington.edu/~hakim/lmr/).
 
-## Requirement
-Python 3
+## Package dependencies
++ [p2k](https://github.com/fzhu2e/p2k): A collection of functions used for PAGES2k dataset analysis (`pip install p2k`)
++ [tqdm](https://github.com/tqdm/tqdm): A fast, extensible progress bar for Python and CLI (`pip install tqdm`)
++ [prysm-api](https://github.com/fzhu2e/prysm-api): The API for PRoxY System Modeling (PRYSM) (`pip install prysm-api`)
++ [dotmap](https://github.com/drgrib/dotmap): Dot access dictionary with dynamic hierarchy creation and ordered iteration (`pip install dotmap`)
++ [xarray](https://github.com/pydata/xarray): N-D labeled arrays and datasets in Python (`pip install xarray`)
++ [netCDF4](https://github.com/Unidata/netcdf4-python): the python interface for netCDF4 format (`conda install netCDF4`)
++ [pyspharm](https://code.google.com/archive/p/pyspharm/): an  object-oriented python interface to the NCAR SPHEREPACK library (`conda install -c conda-forge pyspharm`)
 
 ## Features
 
