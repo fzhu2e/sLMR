@@ -15,6 +15,8 @@ import os
 from tqdm import tqdm
 import pickle
 
+from . import load_gridded_data  # original file from LMR
+
 Proxy = namedtuple(
     'Proxy',
     ['id', 'type', 'start_yr', 'end_yr', 'lat', 'lon', 'elev', 'seasonality', 'values', 'time', 'psm_obj']
@@ -144,6 +146,34 @@ def load_netcdf(filepath, verbose=False):
 
     return datadict
 
+
+def get_prior(filepath, datatype, cfg, anom_reference_period=(1951, 1980), verbose=False):
+    read_func = {
+        'CMIP5': load_gridded_data.read_gridded_data_CMIP5_model,
+    }
+
+    prior_datadir = os.path.dirname(filepath)
+    prior_datafile = os.path.basename(filepath)
+    statevars = dict(cfg.prior.state_variables)
+    statevars_info = dict(cfg.prior.state_variables_info)
+
+    if cfg.core.recon_timescale == 1:
+        avgInterval = {'annual': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]}
+    elif cfg.core.recon_timescale > 1:
+        avgInterval = {'multiyaer': [cfg.core.recon_timescale]}
+    else:
+        print('ERROR in config.: unrecognized job.cfg.core.recon_timescale!')
+        raise SystemExit()
+
+    detrend = cfg.prior.detrend
+
+    datadict = read_func[datatype](
+        prior_datadir, prior_datafile, statevars, avgInterval,
+        detrend=detrend, anom_ref=anom_reference_period,
+        var_info=statevars_info,
+    )
+
+    return datadict
 
 def get_nc_vars(filepath, varnames, useLib='netCDF4', annualize=False):
     ''' Get variables from given ncfile
@@ -452,6 +482,8 @@ def get_proxy(cfg, proxies_df_filepath, metadata_df_filepath, precalib_filesdict
         if precalib_filesdict and psm_key in precalib_filesdict.keys():
             psm_data = pd.read_pickle(precalib_filesdict[psm_key])
             try:
+                if verbose:
+                    print(site, psm_key)
                 psm_site_data = psm_data[(proxy_type, site)]
                 psm_obj = PSM(psm_key, psm_site_data['PSMmse'])
                 pobj = Proxy(site, proxy_type, start_yr, end_yr, lat, lon, elev, seasonality, values, time, psm_obj)
@@ -472,8 +504,8 @@ def get_proxy(cfg, proxies_df_filepath, metadata_df_filepath, precalib_filesdict
     return picked_proxy_ids, all_proxies
 
 
-def get_prior_vars(prior_filesdict, rename_vars={'d18O': 'd18Opr', 'tos': 'sst', 'sos': 'sss'},
-                   useLib='netCDF4', verbose=False):
+def get_env_vars(prior_filesdict, rename_vars={'d18O': 'd18Opr', 'tos': 'sst', 'sos': 'sss'},
+                 useLib='netCDF4', verbose=False):
     prior_vars = {}
 
     first_item = True
@@ -787,6 +819,15 @@ def get_ye(proxy_manager, prior_sample_idxs, ye_filesdict, proxy_set, verbose=Fa
         ye_all[i] = precalc_vals[pidx, prior_sample_idxs]
         ye_all_coords[i] = np.asarray([pobj.lat, pobj.lon], dtype=np.float64)
 
+    # delete nans
+    delete_site_rows = []
+    for i, ye in enumerate(ye_all):
+        if any(np.isnan(ye)):
+            delete_site_rows.append(i)
+
+    ye_all = np.delete(ye_all, delete_site_rows, 0)
+    ye_all_coords = np.delete(ye_all_coords, delete_site_rows, 0)
+
     return ye_all, ye_all_coords
 
 
@@ -924,6 +965,16 @@ def update_year(yr_idx, target_year,
         vardiff = xavar - xbvar
         if (not np.isfinite(np.min(vardiff))) or (not np.isfinite(np.max(vardiff))):
             print('ERROR: Reconstruction has blown-up. Exiting!')
+            print(f'Y.id={Y.id}')
+            print(f'np.max(Xb)={np.max(Xb)}')
+            print(f'Y.psm_obj.psm_key={Y.psm_obj.psm_key}')
+            print(f'Y.psm_obj.R={Y.psm_obj.R}')
+            print(f'np.min(xbvar)={np.min(xbvar)}, np.max(xbvar)={np.max(xbvar)}')
+            print(f'np.min(xavar)={np.min(xavar)}, np.max(xavar)={np.max(xavar)}')
+            #  print(f'np.min(vardiff)={np.min(vardiff)}')
+            #  print(f'np.max(vardiff)={np.max(vardiff)}')
+            #  print(f'ob_err={ob_err}')
+            #  print(f'nYobs={nYobs}')
             raise SystemExit(1)
 
         if verbose:

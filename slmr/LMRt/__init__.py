@@ -115,8 +115,22 @@ class ReconJob:
 
             print(f'{"TOTAL":>45s}:{len(self.proxy_manager.all_proxies):5d}')
 
-    def load_prior(self, prior_filepath, seed=0, verbose=False):
-        prior_dict = utils.load_netcdf(prior_filepath, verbose=verbose)
+    def load_prior(self, prior_filepath, prior_datatype, anom_reference_period=(1951, 1980), seed=0, verbose=False):
+        ''' Load prior variables
+
+        Args:
+            prior_filepath(str): the full path of the prior file; only one variable is required,
+                and other variables under the same folder will be also loaded if specified in the configuration
+            prior_datatype (str): available options: 'CMIP5'
+            anom_reference_period (tuple): the period used for the calculation of climatology/anomaly
+            seed (int): random number seed
+        '''
+        #  prior_dict = utils.load_netcdf(prior_filepath, verbose=verbose)
+        prior_dict = utils.get_prior(
+            prior_filepath, prior_datatype, self.cfg,
+            anom_reference_period=anom_reference_period, verbose=verbose
+        )
+
         ens, prior_sample_indices, coords, full_state_info = utils.populate_ensemble(
             prior_dict, self.cfg, seed=seed, verbose=verbose)
 
@@ -142,7 +156,7 @@ class ReconJob:
             psm_params (kwargs): the specific parameters for certain PSMs
 
         '''
-        lat_model, lon_model, time_model, prior_vars = utils.get_prior_vars(
+        lat_model, lon_model, time_model, prior_vars = utils.get_env_vars(
             prior_filesdict, rename_vars=rename_vars, useLib=useLib, verbose=verbose)
 
         pid_map, ye_out = utils.calc_ye(self.proxy_manager, ptype, psm_name,
@@ -156,7 +170,7 @@ class ReconJob:
         ''' Build precalibration files
         '''
 
-        lat_inst, lon_inst, time_inst, inst_vars = utils.get_prior_vars(inst_filesdict, useLib='xarray', verbose=verbose)
+        lat_inst, lon_inst, time_inst, inst_vars = utils.get_env_vars(inst_filesdict, useLib='xarray', verbose=verbose)
 
         precalib_dict = utils.calibrate_psm(self.proxy_manager, ptype, psm_name,
                                             lat_inst, lon_inst, time_inst, inst_vars,
@@ -281,11 +295,11 @@ class ReconJob:
         self.da = DA(gmt_ens_save, nhmt_ens_save, shmt_ens_save)
         print(f'\npid={os.getpid()} >>> job.da created')
 
-    def run(self, prior_filepath, db_proxies_filepath, db_metadata_filepath,
+    def run(self, prior_filepath, prior_datatype, db_proxies_filepath, db_metadata_filepath,
             recon_years=None, seed=0, precalib_filesdict=None, ye_filesdict=None,
             verbose=False, print_assim_proxy_count=False, save_dirpath=None, mode='normal'):
 
-        self.load_prior(prior_filepath, verbose=verbose, seed=seed)
+        self.load_prior(prior_filepath, prior_datatype, verbose=verbose, seed=seed)
         self.load_proxies(db_proxies_filepath, db_metadata_filepath, precalib_filesdict=precalib_filesdict,
                           verbose=verbose, seed=seed, print_assim_proxy_count=print_assim_proxy_count)
         self.load_ye_files(ye_filesdict=ye_filesdict, verbose=verbose)
