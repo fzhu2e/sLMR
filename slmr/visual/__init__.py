@@ -12,10 +12,11 @@ import glob
 from scipy.stats.mstats import mquantiles
 import pickle
 
-from .. import LMRt
+from ..LMRt import utils
+from ..LMRt import load_gridded_data
 
 
-def load_gmt_from_jobs(exp_dir, qs=[0.025, 0.25, 0.5, 0.75, 0.975], var='gmt_ensemble'):
+def load_gmt_from_jobs(exp_dir, qs=[0.05, 0.5, 0.95], var='gmt_ensemble'):
     # load data
     if not os.path.exists(exp_dir):
         raise ValueError('ERROR: Specified path of the results directory does not exist!!!')
@@ -45,15 +46,159 @@ def load_gmt_from_jobs(exp_dir, qs=[0.025, 0.25, 0.5, 0.75, 0.975], var='gmt_ens
     return gmt_qs
 
 
-def plot_gmt_vs_inst(exp_dir, inst_filesdict, qs=[0.025, 0.25, 0.5, 0.75, 0.975], var='gmt_ensemble'):
-    gmt_qs = load_jobs(exp_dir, qs=qs, var=var)
+def plot_gmt_vs_inst(gmt_qs, ana_pathdict,
+                     verif_yrs=np.arange(1880, 2001), ref_period=[1951, 1980],
+                     var='gmt_ensemble', lmr_label='LMR'):
+    if np.shape(gmt_qs)[-1] == 1:
+        nt = np.size(gmt_qs)
+        gmt_qs_new = np.ndarray((nt, 3))
+        for i in range(3):
+            gmt_qs_new[:, i] = gmt_qs
+
+        gmt_qs = gmt_qs_new
+
+    syear, eyear = verif_yrs[0], verif_yrs[-1]
+    lmr_gmt = gmt_qs[syear:eyear+1, :] - np.mean(gmt_qs[syear:eyear+1, :])
+
+    load_func = {
+        'GISTEMP': load_gridded_data.read_gridded_data_GISTEMP,
+        'HadCRUT': load_gridded_data.read_gridded_data_HadCRUT,
+        'BerkeleyEarth': load_gridded_data.read_gridded_data_BerkeleyEarth,
+        'MLOST': load_gridded_data.read_gridded_data_MLOST,
+        'ERA20-20C': load_gridded_data.read_gridded_data_CMIP5_model,
+        '20CR-V2': load_gridded_data.read_gridded_data_CMIP5_model,
+    }
+
+    calib_vars = {
+        'GISTEMP': ['Tsfc'],
+        'HadCRUT': ['Tsfc'],
+        'BerkeleyEarth': ['Tsfc'],
+        'MLOST': ['air'],
+        'ERA20-20C': {'tas_sfc_Amon': 'anom'},
+        '20CR-V2': {'tas_sfc_Amon': 'anom'},
+    }
+
+    inst_gmt = {}
+    inst_time = {}
+    for name, path in ana_pathdict.items():
+        print(f'Loading {name}: {path} ...')
+        if name in ['ERA20-20C', '20CR-V2']:
+            dd = load_func[name](
+                os.path.dirname(path),
+                os.path.basename(path),
+                calib_vars[name],
+                outtimeavg=list(range(1, 13)),
+                anom_ref=ref_period,
+            )
+            time_grid = dd['tas_sfc_Amon']['years']
+            lat_grid = dd['tas_sfc_Amon']['lat'][:, 0]
+            anomaly_grid = dd['tas_sfc_Amon']['value']
+        else:
+            time_grid, lat_grid, lon_grid, anomaly_grid = load_func[name](
+                os.path.dirname(path),
+                os.path.basename(path),
+                calib_vars[name],
+                outfreq='annual',
+                ref_period=ref_period,
+            )
+
+        gmt, _, _ = utils.global_hemispheric_means(anomaly_grid, lat_grid)
+        year = np.array([d.year for d in time_grid])
+        mask = (year >= syear) & (year <= eyear)
+        inst_gmt[name] = gmt[mask] - np.nanmean(gmt[mask])
+        inst_time[name] = year[mask]
+
+    consensus_yrs = np.copy(verif_yrs)
+    for name in ana_pathdict.keys():
+        overlap_yrs = np.intersect1d(consensus_yrs, inst_time[name])
+        ind_inst = np.searchsorted(inst_time[name], overlap_yrs)
+        consensus_yrs = inst_time[name][ind_inst]
+
+    consensus_gmt = np.zeros(np.size(consensus_yrs))
+    for name in ana_pathdict.keys():
+        overlap_yrs = np.intersect1d(consensus_yrs, inst_time[name])
+        ind_inst = np.searchsorted(inst_time[name], overlap_yrs)
+        consensus_gmt += inst_gmt[name][ind_inst]/len(ana_pathdict.keys())
+
+    inst_gmt['consensus'] = consensus_gmt
+    inst_time['consensus'] = consensus_yrs
+
+    # stats
+    corr_vs_lmr = {}
+    ce_vs_lmr = {}
+    for name in inst_gmt.keys():
+        print(f'Calculating corr and CE against LMR for {name}')
+        overlap_yrs = np.intersect1d(verif_yrs, inst_time[name])
+        ind_lmr = np.searchsorted(verif_yrs, overlap_yrs)
+        ind_inst = np.searchsorted(inst_time[name], overlap_yrs)
+        ts_inst = inst_gmt[name][ind_inst]
+
+        ts_lmr = lmr_gmt[ind_lmr, 1]
+        corr_vs_lmr[name] = np.corrcoef(ts_inst, ts_lmr)[1, 0]
+        ce_vs_lmr[name] = utils.coefficient_efficiency(ts_inst, ts_lmr)
+
+    sns.set(style="darkgrid", font_scale=2)
+    fig, ax = plt.subplots(figsize=[16, 10])
+
+    ax.plot(verif_yrs, lmr_gmt[:, 1], '-', lw=3, color=sns.xkcd_rgb['black'], alpha=1, label=lmr_label)
+    ax.fill_between(verif_yrs, lmr_gmt[:, 0], lmr_gmt[:, -1], color=sns.xkcd_rgb['black'], alpha=0.1)
+    for name in inst_gmt.keys():
+        ax.plot(inst_time[name], inst_gmt[name], '-', alpha=1,
+                label=f'{name} (corr={corr_vs_lmr[name]:.2f}; CE={ce_vs_lmr[name]:.2f})')
+
+    ax.set_xlim([syear, eyear])
+    ax.set_ylim([-0.6, 0.8])
+    ax.set_ylabel('Temperature anomaly (K)')
+    ax.set_xlabel('Year (AD)')
+    ax.set_title('Global mean temperature')
+    ax.legend(frameon=False)
+
+    return fig, corr_vs_lmr, ce_vs_lmr
 
 
+def plot_corr_ce(corr_dict, ce_dict, lw=3, ms=10,
+                 colors=[
+                     sns.xkcd_rgb['denim blue'],
+                     sns.xkcd_rgb['pale red'],
+                     sns.xkcd_rgb['medium green'],
+                     sns.xkcd_rgb['amber'],
+                     sns.xkcd_rgb['purpleish'],
+                 ], ncol=1):
+    exp_names = list(corr_dict.keys())
+    inst_names = list(corr_dict[exp_names[0]].keys())
+
+    sns.set(style="darkgrid", font_scale=2)
+    fig, ax = plt.subplots(figsize=[16, 10])
+
+    inst_corr = {}
+    inst_ce = {}
+    for exp_name in exp_names:
+        inst_corr[exp_name] = []
+        inst_ce[exp_name] = []
+
+    inst_cat = []
+    for inst_name in inst_names:
+        inst_cat.append(inst_name)
+        for exp_name in exp_names:
+            inst_corr[exp_name].append(corr_dict[exp_name][inst_name])
+            inst_ce[exp_name].append(ce_dict[exp_name][inst_name])
+
+    for i, exp_name in enumerate(exp_names):
+        ax.plot(inst_cat, inst_corr[exp_name], '-o', lw=lw, ms=ms, color=colors[i % len(colors)],
+                alpha=1, label=f'corr ({exp_name})')
+        ax.plot(inst_cat, inst_ce[exp_name], '-*', lw=lw, ms=ms, color=colors[i % len(colors)],
+                alpha=1, label=f'CE ({exp_name})')
+
+    ax.set_title('corr and CE against LMR')
+    ax.set_ylabel('coefficient')
+    ax.legend(frameon=False, ncol=ncol)
+
+    return fig
 
 
 def plot_gmt_ts(exp_dir, savefig_path=None, plot_vars=['gmt_ensemble', 'nhmt_ensemble', 'shmt_ensemble'],
-        qs=[0.025, 0.25, 0.5, 0.75, 0.975], pannel_size=[10, 4], font_scale=1.5, hspace=0.5, ylim=[-1, 1],
-        plot_prior=False, prior_var_name='tas_sfc_Amon'):
+                qs=[0.025, 0.25, 0.5, 0.75, 0.975], pannel_size=[10, 4], font_scale=1.5, hspace=0.5, ylim=[-1, 1],
+                plot_prior=False, prior_var_name='tas_sfc_Amon'):
     ''' Plot timeseries
 
     Args:
@@ -131,7 +276,7 @@ def plot_gmt_ts(exp_dir, savefig_path=None, plot_vars=['gmt_ensemble', 'nhmt_ens
                 lat_lalo = tas_coords[:, 0].reshape(nlat, nlon)
                 nstate, nens = tas_prior.shape
                 tas_lalo = tas_prior.transpose().reshape(nens, nlat, nlon)
-                [gmt,nhmt,shmt] = LMRt.utils.global_hemispheric_means(tas_lalo, lat_lalo[:, 0])
+                [gmt,nhmt,shmt] = utils.global_hemispheric_means(tas_lalo, lat_lalo[:, 0])
 
                 prior_gmt[citer,:,:]  = np.repeat(gmt[:,np.newaxis],nt,1)
                 prior_nhmt[citer,:,:] = np.repeat(nhmt[:,np.newaxis],nt,1)
