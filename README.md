@@ -6,7 +6,6 @@ This is a scripting system for the Last Millennium Reanalysis project,
 or [LMR](https://atmos.washington.edu/~hakim/lmr/).
 
 ## Package dependencies
-+ [p2k](https://github.com/fzhu2e/p2k): A collection of functions used for PAGES2k dataset analysis (`pip install p2k`)
 + [tqdm](https://github.com/tqdm/tqdm): A fast, extensible progress bar for Python and CLI (`pip install tqdm`)
 + [prysm-api](https://github.com/fzhu2e/prysm-api): The API for PRoxY System Modeling (PRYSM) (`pip install prysm-api`)
 + [dotmap](https://github.com/drgrib/dotmap): Dot access dictionary with dynamic hierarchy creation and ordered iteration (`pip install dotmap`)

@@ -216,11 +216,11 @@ class ReconJob:
 
         if recon_years is None:
             yr_start = cfg.core.recon_period[0]
-            yr_end = cfg.core.recon_period[1]
-            recon_years = list(range(yr_start, yr_end))
+            yr_end = cfg.core.recon_period[-1]
+            recon_years = list(range(yr_start, yr_end+1))
         else:
-            yr_start, yr_end = recon_years[0], recon_years[-1]-1
-        print(f'\npid={os.getpid()} >>> Recon. period: [{yr_start}, {yr_end})')
+            yr_start, yr_end = recon_years[0], recon_years[-1]
+        print(f'\npid={os.getpid()} >>> Recon. period: [{yr_start}, {yr_end}]')
 
         Xb_one = prior.ens
         Xb_one_aug = np.append(Xb_one, Ye_assim, axis=0)
@@ -264,11 +264,13 @@ class ReconJob:
 
         if recon_years is None:
             yr_start = cfg.core.recon_period[0]
-            yr_end = cfg.core.recon_period[1]
-            recon_years = list(range(yr_start, yr_end))
+            yr_end = cfg.core.recon_period[-1]
+            recon_years = list(range(yr_start, yr_end+1))
         else:
-            yr_start, yr_end = recon_years[0], recon_years[-1]-1
-        print(f'\npid={os.getpid()} >>> Recon. period: [{yr_start}, {yr_end})')
+            yr_start, yr_end = recon_years[0], recon_years[-1]
+
+        nyr = len(recon_years)
+        print(f'\npid={os.getpid()} >>> Recon. period: [{yr_start}, {yr_end}]; {nyr} years')
 
         Xb_one = prior.ens
         Xb_one_aug = np.append(Xb_one, Ye_assim, axis=0)
@@ -277,7 +279,6 @@ class ReconJob:
         Xb_one_coords = np.append(Xb_one_coords, Ye_eval_coords, axis=0)
 
         grid = utils.make_grid(prior)
-        nyr = len(recon_years)
 
         gmt_ens_save = np.zeros((nyr, grid.nens))
         nhmt_ens_save = np.zeros((nyr, grid.nens))

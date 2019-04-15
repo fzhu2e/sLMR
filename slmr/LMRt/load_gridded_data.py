@@ -1,8 +1,8 @@
 """
 Module: load_gridded_data.py
 
-Purpose: Contains functions used in the uploading of the various gridded datasets 
-         (calibration and prior) needed by the LMR. 
+Purpose: Contains functions used in the uploading of the various gridded datasets
+         (calibration and prior) needed by the LMR.
 
 Originator: Robert Tardif, U. of Washington, January 2015
 
@@ -15,27 +15,27 @@ Revisions:
             [R. Tardif, U of Washington, May 2016]
           - Added function to upload the data from the TraCE21ka climate simulation.
             [R. Tardif, U of Washington, December 2016]
-          - Modified the read_gridded_data_CMIP5_model function to handle fields with 
+          - Modified the read_gridded_data_CMIP5_model function to handle fields with
             lats/lons defined using 2d arrays (on irregular grids), and added
             possibility of returning multiyear averages.
             [R. Tardif, U of Washington, March 2017]
           - Modified the read_gridded_data_CMIP5_model function to handle fields with
-            dims as [time,lat] (latitudinally-averaged) and [time,lev,lat] 
+            dims as [time,lat] (latitudinally-averaged) and [time,lev,lat]
             (latitude-depth cross-sections).
             [R. Tardif, U of Washington, April 2017]
           - Minor fix to detrending functionality to handle fields with masked values
             [R. Tardif, U of Washington, April 2017]
-          - Added the function read_gridded_data_cGENIE_model to read data files 
-            derived from output of the cGENIE EMIC. 
+          - Added the function read_gridded_data_cGENIE_model to read data files
+            derived from output of the cGENIE EMIC.
             [R. Tardif, U of Washington, Aug 2017]
           - Modified the read_gridded_data_CMIP5_model function for greater flexibility
             in handling names of geographical coordinates in input .nc files.
             [R. Tardif, U of Washington, Aug 2017]
-          - Bug fix to calculation of anomalies to specific reference period in 
+          - Bug fix to calculation of anomalies to specific reference period in
             read_gridded_data_GPCC, read_gridded_data_DaiPDSI and read_gridded_data_SPEI
             [M. Erb, N. Arizona U. & R. Tardif, U of Washington, Feb 2018]
           - Reference period w.r.t. which anomalies are computed are now passed as argument
-            to functions tasked with uploading instrumental-era calibration datasets. 
+            to functions tasked with uploading instrumental-era calibration datasets.
             [R. Tardif, U. of Washington, February 2018]
 """
 from netCDF4 import Dataset, date2num, num2date
@@ -51,16 +51,16 @@ import math
 def read_gridded_data_GISTEMP(data_dir,data_file,data_vars,outfreq,ref_period):
 #==========================================================================================
 #
-# Reads the monthly data of surface air temperature anomalies from the GISTEMP gridded 
+# Reads the monthly data of surface air temperature anomalies from the GISTEMP gridded
 # product.
-# 
-# Input: 
-#      - data_dir     : Full name of directory containing gridded 
+#
+# Input:
+#      - data_dir     : Full name of directory containing gridded
 #                       data. (string)
 #      - data_file    : Name of file containing gridded data. (string)
 #
 #      - data_vars    : List of variable names to read. (string list)
-#                       Here should simply be ['Tsfc'], as only sfc temperature 
+#                       Here should simply be ['Tsfc'], as only sfc temperature
 #                       data (anomalies) are contained in the file.
 #
 #      - outfreq      : string indicating whether to return monthly or annual averages
@@ -72,46 +72,47 @@ def read_gridded_data_GISTEMP(data_dir,data_file,data_vars,outfreq,ref_period):
 # Output: (numpy arrays)
 #      - time_yrs     : Array with years over which data is available.
 #                       dims: [nb_years]
-#      - lat          : Array containing the latitudes of gridded  data. 
+#      - lat          : Array containing the latitudes of gridded  data.
 #                       dims: [lat]
-#      - lon          : Array containing the longitudes of gridded  data. 
+#      - lon          : Array containing the longitudes of gridded  data.
 #                       dims: [lon]
-#      - value        : Array with the annually-averaged data calculated from monthly data 
+#      - value        : Array with the annually-averaged data calculated from monthly data
 #                       dims: [time,lat,lon]
-# 
-#========================================================================================== 
+#
+#==========================================================================================
 
 
     nbmaxnan = 0 # max nb of nan's allowed in calculation of annual average
-    
+
     # Check if file exists
-    infile = data_dir+'/GISTEMP/'+data_file
+    #  infile = data_dir+'/GISTEMP/'+data_file
+    infile = data_dir+'/'+data_file  # fzhu: delete middle name
     if not os.path.isfile(infile):
         raise SystemExit(('Error in specification of gridded dataset. '
                           'File {} does not exist. Exiting.').format(infile))
-        
+
     # Sanity check on number of variables to read
     if len(data_vars) > 1:
         raise SystemExit('Too many variables to read! This file only contains'
                          ' surface air temperature (anomalies). Exiting.')
-        
+
     dateref = datetime(1800,1,1,0)
     data = Dataset(infile,'r')
 
     lat   = data.variables['lat'][:]
     lon   = data.variables['lon'][:]
-    
+
     indneg = np.where(lon < 0)[0]
     if len(indneg) > 0: # if non-empty
         lon[indneg] = 360.0 + lon[indneg]
 
     # ----------------------------------------------------------------------------------
-    # Convert time from "nb of days from dateref" to actual date/time as datetime object 
+    # Convert time from "nb of days from dateref" to actual date/time as datetime object
     # ----------------------------------------------------------------------------------
-    ntime = len(data.dimensions['time'])    
+    ntime = len(data.dimensions['time'])
     daysfromdateref = data.variables['time'][:]
     dates = np.array([dateref + timedelta(days=int(i)) for i in daysfromdateref])
-    
+
     fillval = np.power(2,15)-1
     value = np.copy(data.variables['tempanomaly'])
     value[value == fillval] = np.NAN
@@ -127,7 +128,7 @@ def read_gridded_data_GISTEMP(data_dir,data_file,data_vars,outfreq,ref_period):
             value[indsm] = (value[indsm] - climo_month[i])
     else:
         print('Warning: using default reference period defining temperature anomalies for GISTEMP product.')
-    
+
     if outfreq == 'annual':
         # List years available in dataset and sort
         years = list(set([d.year for d in dates])) # 'set' is used to get unique values in list
@@ -136,9 +137,9 @@ def read_gridded_data_GISTEMP(data_dir,data_file,data_vars,outfreq,ref_period):
 
         value_annual = np.empty([len(years), len(lat), len(lon)], dtype=float)
         value_annual[:] = np.nan # initialize with nan's
-        
+
         # Loop over years in dataset
-        for i in range(0,len(years)):        
+        for i in range(0,len(years)):
             # find indices in time array where "years[i]" appear
             ind = [j for j, k in enumerate(dates) if k.year == years[i]]
             # ---------------------------------------
@@ -157,7 +158,7 @@ def read_gridded_data_GISTEMP(data_dir,data_file,data_vars,outfreq,ref_period):
     else:
         dates_ret = dates
         value_ret = value
-        
+
     return dates_ret, lat, lon, value_ret
 
 #==========================================================================================
@@ -166,16 +167,16 @@ def read_gridded_data_GISTEMP(data_dir,data_file,data_vars,outfreq,ref_period):
 def read_gridded_data_HadCRUT(data_dir,data_file,data_vars,outfreq,ref_period):
 #==========================================================================================
 #
-# Reads the monthly data of surface air temperature anomalies from the HadCRUT gridded 
+# Reads the monthly data of surface air temperature anomalies from the HadCRUT gridded
 # product.
 #
-# Input: 
-#      - data_dir     : Full name of directory containing gridded 
+# Input:
+#      - data_dir     : Full name of directory containing gridded
 #                       data. (string)
 #      - data_file    : Name of file containing gridded data. (string)
 #
 #      - data_vars    : List of variable names to read. (string list)
-#                       Here should simply be ['Tsfc'], as only sfc temperature 
+#                       Here should simply be ['Tsfc'], as only sfc temperature
 #                       data (anomalies) are contained in the file.
 #      - outfreq      : string indicating whether to return monthly or annual averages
 #
@@ -186,19 +187,20 @@ def read_gridded_data_HadCRUT(data_dir,data_file,data_vars,outfreq,ref_period):
 # Output: (numpy arrays)
 #      - time_yrs     : Array with years over which data is available.
 #                       dims: [nb_years]
-#      - lat          : Array containing the latitudes of gridded  data. 
+#      - lat          : Array containing the latitudes of gridded  data.
 #                       dims: [lat]
-#      - lon          : Array containing the longitudes of gridded  data. 
+#      - lon          : Array containing the longitudes of gridded  data.
 #                       dims: [lon]
-#      - value        : Array with the annually-averaged data calculated from monthly data 
+#      - value        : Array with the annually-averaged data calculated from monthly data
 #                       dims: [time,lat,lon]
-# 
-#========================================================================================== 
+#
+#==========================================================================================
 
     nbmaxnan = 0 # max nb of nan's allowed in calculation of annual average
 
     # Check if file exists
-    infile = data_dir+'/HadCRUT/'+data_file
+    #  infile = data_dir+'/HadCRUT/'+data_file
+    infile = data_dir+'/'+data_file
     if not os.path.isfile(infile):
         raise SystemExit(('Error in specification of gridded dataset. '
                           'File {} does not exist. Exiting.').format(infile))
@@ -219,9 +221,9 @@ def read_gridded_data_HadCRUT(data_dir,data_file,data_vars,outfreq,ref_period):
         lon[indneg] = 360.0 + lon[indneg]
 
     # -------------------------------------------------------------
-    # Convert time from "nb of days from dateref" to absolute years 
+    # Convert time from "nb of days from dateref" to absolute years
     # -------------------------------------------------------------
-    ntime = len(data.dimensions['time'])    
+    ntime = len(data.dimensions['time'])
     daysfromdateref = data.variables['time'][:]
     dates = np.array([dateref + timedelta(days=int(i)) for i in daysfromdateref])
 
@@ -250,7 +252,7 @@ def read_gridded_data_HadCRUT(data_dir,data_file,data_vars,outfreq,ref_period):
         value_annual[:] = np.nan # initialize with nan's
 
         # Loop over years in dataset
-        for i in range(0,len(years)):        
+        for i in range(0,len(years)):
             # find indices in time array where "years[i]" appear
             ind = [j for j, k in enumerate(dates) if k.year == years[i]]
             # ---------------------------------------
@@ -262,13 +264,13 @@ def read_gridded_data_HadCRUT(data_dir,data_file,data_vars,outfreq,ref_period):
             nancount = np.isnan(value[ind]).sum(axis=0)
             tmp[nancount > nbmaxnan] = np.nan # put nan back if nb of nan's in current year above threshold
             value_annual[i,:,:] = tmp
-            
+
         dates_ret = dates_annual
         value_ret = value_annual
 
     else:
         dates_ret = dates
-        value_ret = value       
+        value_ret = value
 
     return dates_ret, lat, lon, value_ret
 
@@ -278,16 +280,16 @@ def read_gridded_data_HadCRUT(data_dir,data_file,data_vars,outfreq,ref_period):
 def read_gridded_data_BerkeleyEarth(data_dir,data_file,data_vars,outfreq,ref_period):
 #==========================================================================================
 #
-# Reads the monthly data of surface air temperature anomalies from the BerkeleyEarth gridded 
+# Reads the monthly data of surface air temperature anomalies from the BerkeleyEarth gridded
 # product.
 #
-# Input: 
-#      - data_dir     : Full name of directory containing gridded 
+# Input:
+#      - data_dir     : Full name of directory containing gridded
 #                       data. (string)
 #      - data_file    : Name of file containing gridded data. (string)
 #
 #      - data_vars    : List of variable names to read. (string list)
-#                       Here should simply be ['Tsfc'], as only sfc temperature 
+#                       Here should simply be ['Tsfc'], as only sfc temperature
 #                       data (anomalies) are contained in the file.
 #
 #      - outfreq      : string indicating whether to return monthly or annual averages
@@ -299,19 +301,20 @@ def read_gridded_data_BerkeleyEarth(data_dir,data_file,data_vars,outfreq,ref_per
 # Output: (numpy arrays)
 #      - time_yrs     : Array with years over which data is available.
 #                       dims: [nb_years]
-#      - lat          : Array containing the latitudes of gridded  data. 
+#      - lat          : Array containing the latitudes of gridded  data.
 #                       dims: [lat]
-#      - lon          : Array containing the longitudes of gridded  data. 
+#      - lon          : Array containing the longitudes of gridded  data.
 #                       dims: [lon]
-#      - value        : Array with the annually-averaged data calculated from monthly data 
+#      - value        : Array with the annually-averaged data calculated from monthly data
 #                       dims: [time,lat,lon]
-# 
-#========================================================================================== 
+#
+#==========================================================================================
 
     nbmaxnan = 0 # max nb of nan's allowed in calculation of annual average
 
     # Check if file exists
-    infile = data_dir+'/BerkeleyEarth/'+data_file
+    #  infile = data_dir+'/BerkeleyEarth/'+data_file
+    infile = data_dir+'/'+data_file
     if not os.path.isfile(infile):
         raise SystemExit(('Error in specification of gridded dataset. '
                           'File {} does not exist. Exiting.').format(infile))
@@ -346,7 +349,7 @@ def read_gridded_data_BerkeleyEarth(data_dir,data_file,data_vars,outfreq,ref_per
     dates = np.array(time_yrs)
 
     fillval = data.variables['temperature'].missing_value
-    value = np.copy(data.variables['temperature'])    
+    value = np.copy(data.variables['temperature'])
     value[value == fillval] = np.NAN
 
     if ref_period:
@@ -360,7 +363,7 @@ def read_gridded_data_BerkeleyEarth(data_dir,data_file,data_vars,outfreq,ref_per
             value[indsm] = (value[indsm] - climo_month[i])
     else:
         print('Warning: using default reference period defining temperature anomalies for BEST product.')
-    
+
     if outfreq == 'annual':
         # List years available in dataset and sort
         years = list(set([d.year for d in dates])) # 'set' is used to get unique values in list
@@ -371,7 +374,7 @@ def read_gridded_data_BerkeleyEarth(data_dir,data_file,data_vars,outfreq,ref_per
         value_annual[:] = np.nan # initialize with nan's
 
         # Loop over years in dataset
-        for i in range(0,len(years)):        
+        for i in range(0,len(years)):
             # find indices in time array where "years[i]" appear
             ind = [j for j, k in enumerate(dates) if k.year == years[i]]
             # ---------------------------------------
@@ -385,12 +388,12 @@ def read_gridded_data_BerkeleyEarth(data_dir,data_file,data_vars,outfreq,ref_per
             value_annual[i,:,:] = tmp
 
         dates_ret = dates_annual
-        value_ret = value_annual            
+        value_ret = value_annual
 
     else:
         dates_ret = dates
         value_ret = value
-        
+
     return dates_ret, lat, lon, value_ret
 
 #==========================================================================================
@@ -398,16 +401,16 @@ def read_gridded_data_BerkeleyEarth(data_dir,data_file,data_vars,outfreq,ref_per
 def read_gridded_data_MLOST(data_dir,data_file,data_vars,outfreq,ref_period):
 #==========================================================================================
 #
-# Reads the monthly data of surface air temperature anomalies from the MLOST NOAA/NCDC 
+# Reads the monthly data of surface air temperature anomalies from the MLOST NOAA/NCDC
 # gridded product.
 #
-# Input: 
-#      - data_dir     : Full name of directory containing gridded 
+# Input:
+#      - data_dir     : Full name of directory containing gridded
 #                       data. (string)
 #      - data_file    : Name of file containing gridded data. (string)
 #
 #      - data_vars    : List of variable names to read. (string list)
-#                       Here should simply be ['Tsfc'], as only sfc temperature 
+#                       Here should simply be ['Tsfc'], as only sfc temperature
 #                       data (anomalies) are contained in the file.
 #
 #      - outfreq      : string indicating whether to return monthly or annual averages
@@ -419,22 +422,24 @@ def read_gridded_data_MLOST(data_dir,data_file,data_vars,outfreq,ref_period):
 # Output: (numpy arrays)
 #      - time_yrs     : Array with years over which data is available.
 #                       dims: [nb_years]
-#      - lat          : Array containing the latitudes of gridded  data. 
+#      - lat          : Array containing the latitudes of gridded  data.
 #                       dims: [lat]
-#      - lon          : Array containing the longitudes of gridded  data. 
+#      - lon          : Array containing the longitudes of gridded  data.
 #                       dims: [lon]
-#      - value        : Array with the annually-averaged data calculated from monthly data 
+#      - value        : Array with the annually-averaged data calculated from monthly data
 #                       dims: [time,lat,lon]
-# 
-#========================================================================================== 
+#
+#==========================================================================================
 
     nbmaxnan = 0 # max nb of nan's allowed in calculation of annual average
 
     # Check if file exists
     if 'MLOST' in data_file:
-        infile = data_dir+'/MLOST/'+data_file
+        #  infile = data_dir+'/MLOST/'+data_file
+        infile = data_dir+'/'+data_file
     elif 'NOAAGlobalTemp' in data_file:
-        infile = data_dir+'/NOAAGlobalTemp/'+data_file
+        #  infile = data_dir+'/NOAAGlobalTemp/'+data_file
+        infile = data_dir+'/'+data_file
     else:
         print('In read_gridded_data_MLOST: error in specification of',
               ' datadirectory for this calibration dataset.')
@@ -460,9 +465,9 @@ def read_gridded_data_MLOST(data_dir,data_file,data_vars,outfreq,ref_period):
 
     # -----------------------------------------------------------------
     # Time is in "days since 1800-1-1 0:0:0":convert to calendar years
-    # -----------------------------------------------------------------        
+    # -----------------------------------------------------------------
     dateref = datetime(1800,1,1,0)
-    ntime = len(data.dimensions['time']) 
+    ntime = len(data.dimensions['time'])
     daysfromdateref = data.variables['time'][:]
     dates = np.array([dateref + timedelta(days=int(i)) for i in daysfromdateref])
 
@@ -481,7 +486,7 @@ def read_gridded_data_MLOST(data_dir,data_file,data_vars,outfreq,ref_period):
             value[indsm] = (value[indsm] - climo_month[i])
     else:
         print('Warning: using default reference period defining temperature anomalies for MLOST product.')
-    
+
     if outfreq == 'annual':
         # List years available in dataset and sort
         years = list(set([d.year for d in dates])) # 'set' is used to get unique values in list
@@ -490,15 +495,15 @@ def read_gridded_data_MLOST(data_dir,data_file,data_vars,outfreq,ref_period):
 
         value_annual = np.empty([len(years), len(lat), len(lon)], dtype=float)
         value_annual[:] = np.nan # initialize with nan's
-        
+
         # Loop over years in dataset
-        for i in range(0,len(years)):    
+        for i in range(0,len(years)):
             # find indices in time array where "years[i]" appear
             ind = [j for j, k in enumerate(dates) if k.year == years[i]]
             # ---------------------------------------
             # Calculate annual mean from monthly data
             # Note: data has dims [time,lat,lon]
-            # --------------------------------------- 
+            # ---------------------------------------
             tmp = np.nanmean(value[ind],axis=0)
             # apply check of max nb of nan values allowed
             nancount = np.isnan(value[ind]).sum(axis=0)
@@ -511,8 +516,8 @@ def read_gridded_data_MLOST(data_dir,data_file,data_vars,outfreq,ref_period):
     else:
         dates_ret = dates
         value_ret = value
-        
-    return dates_ret, lat, lon, value_ret      
+
+    return dates_ret, lat, lon, value_ret
 
 
 #==========================================================================================
@@ -520,16 +525,16 @@ def read_gridded_data_MLOST(data_dir,data_file,data_vars,outfreq,ref_period):
 def read_gridded_data_GPCC(data_dir,data_file,data_vars,out_anomalies,ref_period,outfreq):
 #==========================================================================================
 #
-# Reads the monthly data of surface air temperature anomalies from the GPCC 
+# Reads the monthly data of surface air temperature anomalies from the GPCC
 # gridded product.
 #
-# Input: 
-#      - data_dir     : Full name of directory containing gridded 
+# Input:
+#      - data_dir     : Full name of directory containing gridded
 #                       data. (string)
 #      - data_file    : Name of file containing gridded data. (string)
 #
 #      - data_vars    : List of variable names to read. (string list)
-#                       Here should simply be ['precip'], as only precipitation 
+#                       Here should simply be ['precip'], as only precipitation
 #                       data (anomalies) are contained in the file.
 #
 #      - out_anomalies: Boolean indicating whether anomalies w.r.t. a referenced period
@@ -543,19 +548,20 @@ def read_gridded_data_GPCC(data_dir,data_file,data_vars,out_anomalies,ref_period
 # Output: (numpy arrays)
 #      - time_yrs     : Array with years over which data is available.
 #                       dims: [nb_years]
-#      - lat          : Array containing the latitudes of gridded  data. 
+#      - lat          : Array containing the latitudes of gridded  data.
 #                       dims: [lat]
-#      - lon          : Array containing the longitudes of gridded  data. 
+#      - lon          : Array containing the longitudes of gridded  data.
 #                       dims: [lon]
-#      - value        : Array with the annually-averaged data calculated from monthly data 
+#      - value        : Array with the annually-averaged data calculated from monthly data
 #                       dims: [time,lat,lon]
-# 
-#========================================================================================== 
+#
+#==========================================================================================
 
     nbmaxnan = 0 # max nb of nan's allowed in calculation of annual average
 
     # Check if file exists
-    infile = data_dir+'/GPCC/'+data_file
+    #  infile = data_dir+'/GPCC/'+data_file
+    infile = data_dir+'/'+data_file
     if not os.path.isfile(infile):
         raise SystemExit(('Error in specification of gridded dataset. '
                           'File {} does not exist. Exiting.').format(infile))
@@ -576,9 +582,9 @@ def read_gridded_data_GPCC(data_dir,data_file,data_vars,out_anomalies,ref_period
 
     # -----------------------------------------------------------------
     # Time is in "days since 1800-1-1 0:0:0":convert to calendar years
-    # -----------------------------------------------------------------        
+    # -----------------------------------------------------------------
     dateref = datetime(1800,1,1,0)
-    ntime = len(data.dimensions['time']) 
+    ntime = len(data.dimensions['time'])
     daysfromdateref = data.variables['time'][:]
     dates = np.array([dateref + timedelta(days=int(i)) for i in daysfromdateref])
 
@@ -610,9 +616,9 @@ def read_gridded_data_GPCC(data_dir,data_file,data_vars,out_anomalies,ref_period
 
         value_annual = np.empty([len(years), len(lat), len(lon)], dtype=float)
         value_annual[:] = np.nan # initialize with nan's
-        
+
         # Loop over years in dataset
-        for i in range(0,len(years)):        
+        for i in range(0,len(years)):
             # find indices in time array where "years[i]" appear
             ind = [j for j, k in enumerate(dates) if k.year == years[i]]
             # ---------------------------------------
@@ -634,18 +640,18 @@ def read_gridded_data_GPCC(data_dir,data_file,data_vars,out_anomalies,ref_period
 
     return dates_ret, lat, lon, value_ret
 
-    
+
 #==========================================================================================
 
 def read_gridded_data_DaiPDSI(data_dir,data_file,data_vars,out_anomalies,ref_period,outfreq):
 #==========================================================================================
 #
 # Reads the monthly data of Palmer Drought Severity Index (PDSI) anomalies from the
-# "Dai" PDSI gridded product obtained from NOAA/ESRL at: 
+# "Dai" PDSI gridded product obtained from NOAA/ESRL at:
 # http://www.esrl.noaa.gov/psd/data/gridded/data.pdsi.html
 #
-# Input: 
-#      - data_dir     : Full name of directory containing gridded 
+# Input:
+#      - data_dir     : Full name of directory containing gridded
 #                       data. (string)
 #      - data_file    : Name of file containing gridded data. (string)
 #
@@ -664,19 +670,20 @@ def read_gridded_data_DaiPDSI(data_dir,data_file,data_vars,out_anomalies,ref_per
 # Output: (numpy arrays)
 #      - time_yrs     : Array with years over which data is available.
 #                       dims: [nb_years]
-#      - lat          : Array containing the latitudes of gridded  data. 
+#      - lat          : Array containing the latitudes of gridded  data.
 #                       dims: [lat]
-#      - lon          : Array containing the longitudes of gridded  data. 
+#      - lon          : Array containing the longitudes of gridded  data.
 #                       dims: [lon]
-#      - value        : Array with the annually-averaged data calculated from monthly data 
+#      - value        : Array with the annually-averaged data calculated from monthly data
 #                       dims: [time,lat,lon]
-# 
-#========================================================================================== 
+#
+#==========================================================================================
 
     nbmaxnan = 0 # max nb of nan's allowed in calculation of annual average
 
     # Check if file exists
-    infile = data_dir+'/DaiPDSI/'+data_file
+    #  infile = data_dir+'/DaiPDSI/'+data_file
+    infile = data_dir+'/'+data_file
     if not os.path.isfile(infile):
         raise SystemExit(('Error in specification of gridded dataset. '
                           'File {} does not exist. Exiting.').format(infile))
@@ -697,9 +704,9 @@ def read_gridded_data_DaiPDSI(data_dir,data_file,data_vars,out_anomalies,ref_per
 
     # -----------------------------------------------------------------
     # Time is in "hours since 1800-1-1 0:0:0":convert to calendar years
-    # -----------------------------------------------------------------        
+    # -----------------------------------------------------------------
     dateref = datetime(1800,1,1,0)
-    ntime = len(data.dimensions['time'])    
+    ntime = len(data.dimensions['time'])
     hoursfromdateref = data.variables['time'][:]
     dates = np.array([dateref + timedelta(hours=int(i)) for i in hoursfromdateref])
 
@@ -731,9 +738,9 @@ def read_gridded_data_DaiPDSI(data_dir,data_file,data_vars,out_anomalies,ref_per
 
         value_annual = np.empty([len(years), len(lat), len(lon)], dtype=float)
         value_annual[:] = np.nan # initialize with nan's
-        
+
         # Loop over years in dataset
-        for i in range(0,len(years)):        
+        for i in range(0,len(years)):
             # find indices in time array where "years[i]" appear
             ind = [j for j, k in enumerate(dates) if k.year == years[i]]
             # ---------------------------------------
@@ -745,7 +752,7 @@ def read_gridded_data_DaiPDSI(data_dir,data_file,data_vars,out_anomalies,ref_per
             nancount = np.isnan(value[ind]).sum(axis=0)
             tmp[nancount > nbmaxnan] = np.nan # put nan back if nb of nan's in current year above threshold
             value_annual[i,:,:] = tmp
-        
+
         dates_ret = dates_annual
         value_ret = value_annual
 
@@ -768,8 +775,8 @@ def read_gridded_data_SPEI(data_dir,data_file,data_vars,out_anomalies,ref_period
 # SPEI gridded product obtained from the Consejo Superior de Investigaciones Cientificas
 # (CSIC) at http://sac.csic.es/spei/index.html
 #
-# Input: 
-#      - data_dir     : Full name of directory containing gridded 
+# Input:
+#      - data_dir     : Full name of directory containing gridded
 #                       data. (string)
 #      - data_file    : Name of file containing gridded data. (string)
 #
@@ -788,19 +795,20 @@ def read_gridded_data_SPEI(data_dir,data_file,data_vars,out_anomalies,ref_period
 # Output: (numpy arrays)
 #      - time_yrs     : Array with years over which data is available.
 #                       dims: [nb_years]
-#      - lat          : Array containing the latitudes of gridded  data. 
+#      - lat          : Array containing the latitudes of gridded  data.
 #                       dims: [lat]
-#      - lon          : Array containing the longitudes of gridded  data. 
+#      - lon          : Array containing the longitudes of gridded  data.
 #                       dims: [lon]
-#      - value        : Array with the annually-averaged data calculated from monthly data 
+#      - value        : Array with the annually-averaged data calculated from monthly data
 #                       dims: [time,lat,lon]
-# 
-#========================================================================================== 
+#
+#==========================================================================================
 
     nbmaxnan = 0 # max nb of nan's allowed in calculation of annual average
 
     # Check if file exists
-    infile = data_dir+'/SPEI/'+data_file
+    #  infile = data_dir+'/SPEI/'+data_file
+    infile = data_dir+'/'+data_file
     if not os.path.isfile(infile):
         raise SystemExit(('Error in specification of gridded dataset. '
                           'File {} does not exist. Exiting.').format(infile))
@@ -822,9 +830,9 @@ def read_gridded_data_SPEI(data_dir,data_file,data_vars,out_anomalies,ref_period
 
     # -----------------------------------------------------------------
     # Time is in "days since 1900-1-1 0:0:0":convert to calendar years
-    # -----------------------------------------------------------------        
+    # -----------------------------------------------------------------
     dateref = datetime(1900,1,1,0)
-    ntime = len(data.dimensions['time'])    
+    ntime = len(data.dimensions['time'])
     daysfromdateref = data.variables['time'][:]
     dates = np.array([dateref + timedelta(days=int(i)) for i in daysfromdateref])
 
@@ -847,7 +855,7 @@ def read_gridded_data_SPEI(data_dir,data_file,data_vars,out_anomalies,ref_period
         else:
             raise SystemExit('In read_gridded_data_SPEI: out_anomalies is set to True,'
                              ' but a reference period is not properly defined. Exiting.')
-    
+
     if outfreq == 'annual':
         # List years available in dataset and sort
         years = list(set([d.year for d in dates])) # 'set' is used to get unique values in list
@@ -856,9 +864,9 @@ def read_gridded_data_SPEI(data_dir,data_file,data_vars,out_anomalies,ref_period
 
         value_annual = np.empty([len(years), len(lat), len(lon)], dtype=float)
         value_annual[:] = np.nan # initialize with nan's
-        
+
         # Loop over years in dataset
-        for i in range(0,len(years)):        
+        for i in range(0,len(years)):
             # find indices in time array where "years[i]" appear
             ind = [j for j, k in enumerate(dates) if k.year == years[i]]
             # ---------------------------------------
@@ -870,7 +878,7 @@ def read_gridded_data_SPEI(data_dir,data_file,data_vars,out_anomalies,ref_period
             nancount = np.isnan(value[ind]).sum(axis=0)
             tmp[nancount > nbmaxnan] = np.nan # put nan back if nb of nan's in current year above threshold
             value_annual[i,:,:] = tmp
-        
+
         dates_ret = dates_annual
         value_ret = value_annual
 
@@ -889,8 +897,8 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
 #
 # Reads the monthly data from a CMIP5 model and return yearly averaged values
 #
-# Input: 
-#      - data_dir     : Full name of directory containing gridded 
+# Input:
+#      - data_dir     : Full name of directory containing gridded
 #                       data. (string)
 #      - data_file    : Name of file containing gridded data. (string)
 #
@@ -900,7 +908,7 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
 #
 #      - outtimeavg   : Dictionary indicating the type of averaging (key) and associated
 #                       information on averaging period (integer list)
-#                       if the type is "annual": list of integers indicating the months of 
+#                       if the type is "annual": list of integers indicating the months of
 #                                                the year over which to average the data.
 #                                                Requires availability of monthly data.
 #                       if type is "multiyear" : list of single integer indicating the length
@@ -921,28 +929,28 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
 #      - anom_ref     : Reference period (in years CE) used in calculating anomalies (tuple)
 #
 #      - var_info     : Dict. containing information about whether some state variables
-#                       represent temperature or moisture (used to extract proper 
-#                       seasonally-avg. data to be used in calculation of proxy estimates) 
+#                       represent temperature or moisture (used to extract proper
+#                       seasonally-avg. data to be used in calculation of proxy estimates)
 #
-# Output: 
-#      - datadict     : Master dictionary containing dictionaries, one for each state 
+# Output:
+#      - datadict     : Master dictionary containing dictionaries, one for each state
 #                       variable, themselves containing the following numpy arrays:
 #                       - time_yrs  : Array with years over which data is available.
 #                                     dims: [nb_years]
-#                       - lat       : Array containing the latitudes of gridded  data. 
+#                       - lat       : Array containing the latitudes of gridded  data.
 #                                     dims: [lat]
-#                       - lon       : Array containing the longitudes of gridded  data. 
+#                       - lon       : Array containing the longitudes of gridded  data.
 #                                     dims: [lon]
-#                       - value     : Array with the averaged data calculated from 
+#                       - value     : Array with the averaged data calculated from
 #                                     monthly data dims: [time,lat,lon]
-# 
-#  ex. data access : datadict['tas_sfc_Amon']['years'] => array containing years of the 
+#
+#  ex. data access : datadict['tas_sfc_Amon']['years'] => array containing years of the
 #                                                         'tas' data
 #                    datadict['tas_sfc_Amon']['lat']   => array of lats for 'tas' data
 #                    datadict['tas_sfc_Amon']['lon']   => array of lons for 'tas' data
 #                    datadict['tas_sfc_Amon']['value'] => array of 'tas' data values
 #
-#========================================================================================== 
+#==========================================================================================
 
     datadict = {}
 
@@ -950,7 +958,7 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
     for v in range(len(data_vars)):
         vardef = list(data_vars.keys())[v]
         data_file_read = data_file.replace('[vardef_template]', vardef)
-        
+
         # Check if file exists
         infile = data_dir + '/' + data_file_read
         if not os.path.isfile(infile):
@@ -979,11 +987,11 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
         vardimnames = []
         for d in vardims:
             vardimnames.append(d)
-        
+
         # put everything in lower case for homogeneity
         vardimnames = [item.lower() for item in vardimnames]
-        
-        # One of the dims has to be time! 
+
+        # One of the dims has to be time!
         if 'time' not in vardimnames:
             print('Variable does not have *time* as a dimension! Exiting!')
             raise SystemExit()
@@ -1000,8 +1008,8 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
                     new_time = np.zeros(time.shape)
                     nmonths, = time.shape
                     basedate = time.units.split('since')[1].lstrip()
-                    new_time_units = "days since "+basedate        
-                    start_date = pl.datestr2num(basedate)        
+                    new_time_units = "days since "+basedate
+                    start_date = pl.datestr2num(basedate)
                     act_date = start_date*1.0
                     new_time[0] = act_date
                     for i in range(int(nmonths)): #increment months
@@ -1011,7 +1019,7 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
                         new_time[i] = act_date
 
                     time_yrs = num2date(new_time[:],units=new_time_units,calendar=time.calendar)
-                else:                    
+                else:
                     time_yrs = num2date(time[:],units=time.units,
                                     calendar=time.calendar)
             else:
@@ -1040,7 +1048,7 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
 
         # Query info on spatial coordinates ...
         # get rid of time in list in vardimnames
-        varspacecoordnames = [item for item in vardimnames if item != 'time'] 
+        varspacecoordnames = [item for item in vardimnames if item != 'time']
         nbspacecoords = len(varspacecoordnames)
 
         if nbspacecoords == 0: # data => simple time series
@@ -1049,23 +1057,23 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
         elif nbspacecoords == 1: # data => 1D data
             if 'lat' in varspacecoordnames or 'latitude' in varspacecoordnames:
                 # latitudinally-averaged  variable
-                vartype = '1D:meridional' 
+                vartype = '1D:meridional'
                 spacecoords = ('lat',)
                 if 'lat' in varspacecoordnames:
                     spacevar1 = data.variables['lat'][:]
                 elif 'latitude' in varspacecoordnames:
                     spacevar1 = data.variables['latitude'][:]
-                
+
         elif ((nbspacecoords == 2) or (nbspacecoords == 3 and 'plev' in vardimnames and dictdims['plev'] == 1)): # data => 2D data
-            # get rid of plev in list        
-            varspacecoordnames = [item for item in varspacecoordnames if item != 'plev'] 
+            # get rid of plev in list
+            varspacecoordnames = [item for item in varspacecoordnames if item != 'plev']
             spacecoords = (varspacecoordnames[0],varspacecoordnames[1])
             spacevar1 = data.variables[spacecoords[0]][:]
             spacevar2 = data.variables[spacecoords[1]][:]
-            
+
             # Allow for use of 'latitude'/'longitude' as definitions of spatial coords.
             # in input file, but use the harmonized 'lat'/'lon' for remainder of process
-            # after the input from file. 
+            # after the input from file.
             if 'latitude' in spacecoords or 'longitude' in spacecoords:
                 tmplst = list(spacecoords) # to list for modification
                 if 'latitude' in tmplst:
@@ -1075,7 +1083,7 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
                     indc = tmplst.index('longitude')
                     tmplst[indc] = 'lon'
                 spacecoords = tuple(tmplst) # back to tuple
-                
+
             if 'lat' in spacecoords and 'lon' in spacecoords:
                 vartype = '2D:horizontal'
             elif 'lat' in spacecoords and 'lev' in spacecoords:
@@ -1086,8 +1094,8 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
         else:
             print('Cannot handle this variable yet! Too many dimensions... Exiting!')
             raise SystemExit()
-        
-        
+
+
         # -----------------
         # Upload data array
         # -----------------
@@ -1100,17 +1108,17 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
         ntime = len(data.dimensions['time'])
         dates = time_yrs
 
-        
+
         # if 2D:horizontal variable, check grid & standardize grid orientation to lat=>[-90,90] & lon=>[0,360] if needed
         if vartype == '2D:horizontal':
 
             vardims = data_var.shape
-            
+
             # which dim is lat & which is lon?
             indlat = spacecoords.index('lat')
             indlon = spacecoords.index('lon')
             print('indlat=', indlat, ' indlon=', indlon)
-            
+
             if indlon == 0:
                 vlon = spacevar1
                 vlat = spacevar2
@@ -1147,7 +1155,7 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
             if not monotone_increase and not monotone_decrease:
                 # funky grid
                 fliplat = False
-                
+
             if fliplat is None:
                 if varlatdim == 2: # 2D lat array
                     if varlat[0,0] > varlat[-1,0]: # lat not as [-90,90] => array upside-down
@@ -1193,7 +1201,7 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
 
 
             print('::vardims=', vardims)
-            
+
             # which dim is lat and which is lev?
             indlat = spacecoords.index('lat')
             indlev = spacecoords.index('lev')
@@ -1212,12 +1220,12 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
 
             # are coordinates defined as 1d or 2d array?
             spacevardims = len(vlat.shape)
-            
+
             if spacevardims == 1:
                 if indlev == 0:
                     varlev = np.array([vlev,]*nlat).transpose()
                     varlat = np.array([vlat,]*nlev)
-                    
+
                 else:
                     varlat = np.array([vlat,]*nlev).transpose()
                     varlev = np.array([vlev,]*nlat)
@@ -1229,7 +1237,7 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
             varlatdim = len(varlat.shape)
             varlevdim = len(varlev.shape)
 
-            
+
             # Check if latitudes are defined in the [-90,90] domain
             fliplat = None
 
@@ -1239,7 +1247,7 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
             if not monotone_increase and not monotone_decrease:
                 # funky grid
                 fliplat = False
-                
+
             if fliplat is None:
                 if varlatdim == 2: # 2D lat array
                     if indlat == 0:
@@ -1278,16 +1286,16 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
                 spacevar2 = varlev
                 spacevar1 = varlat
 
-        
+
         # if 1D:meridional (latitudinally-averaged) variable
         elif vartype == '1D:meridional':
 
             vardims = data_var.shape
-            
+
             # which dim is lat?
             indlat = spacecoords.index('lat')
             print('indlat=', indlat)
-            
+
             # Check if latitudes are defined in the [-90,90] domain
             fliplat = None
             # check for monotonically increasing or decreasing values
@@ -1305,13 +1313,13 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
                 spacevar1 = np.flipud(spacevar1)
                 tmp = data_var[:,::-1]
                 data_var = tmp
-            
+
 
         # ====== other data processing ======
-            
+
         # Calculate anomalies?
         kind = data_vars[vardef]
-        
+
         # monthly climatology
         if vartype == '0D:time series':
             climo_month = np.zeros((12))
@@ -1319,10 +1327,10 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
             climo_month = np.zeros([12, vardims[1]], dtype=float)
         elif '2D' in vartype:
             climo_month = np.zeros([12, vardims[1], vardims[2]], dtype=float)
-        
+
         if not kind or kind == 'anom':
             print('Anomalies provided as the prior: Removing the temporal mean (for every gridpoint)...')
-            
+
             # prior data overlap with anomaly reference period?
             # if not, take anomalies w.r.t. to mean over entire length of the data
             overlap = False
@@ -1344,7 +1352,7 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
 
                 climo_month[i] = np.nanmean(data_var[indsmref], axis=0)
                 data_var[indsm] = (data_var[indsm] - climo_month[i])
-                
+
         elif kind == 'full':
             print('Full field provided as the prior')
             # do nothing else...
@@ -1377,7 +1385,7 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
                         data_var[:,i] = data_var_copy[:,i] - trend
                     else:
                         data_var[:,i] = np.nan
-            elif '2D' in vartype: 
+            elif '2D' in vartype:
                 [xdim,dim1,dim2] = data_var.shape
                 xvar = list(range(xdim))
                 # loop over grid points
@@ -1389,13 +1397,13 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
                             data_var[:,i,j] = data_var_copy[:,i,j] - trend
                         else:
                             data_var[:,i,j] = np.nan
-                        
+
             print(var_to_extract, ': Global(monthly/detrend): mean=', np.nanmean(data_var), ' , std-dev=', np.nanstd(data_var))
 
 
         # ----------------------------------------------------------------
         # Average monthly data over the monthly sequence in outtimeavg.
-        # Note: Means one output data per year, but averaged over specific 
+        # Note: Means one output data per year, but averaged over specific
         #       sequence of months.
         # ----------------------------------------------------------------
 
@@ -1416,10 +1424,10 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
             # sequence(s) of months over which to average
             outtimeavg_key = 'annual'
             outtimeavg_val = outtimeavg
-            
+
         # outtimeavg_val is a tuple, or a list?
         if type(outtimeavg_val) is tuple:
-            # Is var_info defined? 
+            # Is var_info defined?
             if var_info:
                 # assign appropriate seasonality whether variable represents temperature *or* moisture
                 if vardef in var_info['temperature']:
@@ -1444,30 +1452,30 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
 
 
         print('Averaging over month sequence:', outtimeavg_var)
-        
+
         year_current = [m for m in outtimeavg_var if m>0 and m<=12]
-        year_before  = [abs(m) for m in outtimeavg_var if m < 0]        
+        year_before  = [abs(m) for m in outtimeavg_var if m < 0]
         year_follow  = [m-12 for m in outtimeavg_var if m > 12]
-        
+
         avgmonths = year_before + year_current + year_follow
         indsclimo = sorted([item-1 for item in avgmonths])
-        
+
         # List years available in dataset and sort
         years_all = [d.year for d in time_yrs_list]
         years     = list(set(years_all)) # 'set' used to retain unique values in list
         years.sort() # sort the list
         ntime = len(years)
         datesYears = np.array([datetime(y,1,1,0,0) for y in years])
-        
+
         if vartype == '0D:time series':
-            value = np.zeros([ntime], dtype=float) 
+            value = np.zeros([ntime], dtype=float)
         elif vartype == '1D:meridional':
             value = np.zeros([ntime, vardims[1]], dtype=float)
         elif '2D' in vartype:
             value = np.zeros([ntime, vardims[1], vardims[2]], dtype=float)
 
 
-        # Loop over years in dataset (less memory intensive...otherwise need to deal with large arrays) 
+        # Loop over years in dataset (less memory intensive...otherwise need to deal with large arrays)
         for i in range(ntime):
             tindsyr   = [k for k,d in enumerate(dates) if d.year == years[i]    and d.month in year_current]
             tindsyrm1 = [k for k,d in enumerate(dates) if d.year == years[i]-1. and d.month in year_before]
@@ -1478,28 +1486,28 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
                 value[i] = np.nanmean(data_var[indsyr],axis=0)
             elif vartype == '1D:meridional':
                 value[i,:] = np.nanmean(data_var[indsyr],axis=0)
-            elif '2D' in vartype: 
+            elif '2D' in vartype:
                 if nbdims > 3:
                     value[i,:,:] = np.nanmean(np.squeeze(data_var[indsyr]),axis=0)
                 else:
                     value[i,:,:] = np.nanmean(data_var[indsyr],axis=0)
 
-        
+
         print(var_to_extract, ': Global(time-averaged): mean=', np.nanmean(value), ' , std-dev=', np.nanstd(value))
 
         climo = np.mean(climo_month[indsclimo], axis=0)
-        
+
 
         # Returning multiyear averages if option enabled
         if outtimeavg_key == 'multiyear':
-            # multiyear: Averaging available data over a time interval 
+            # multiyear: Averaging available data over a time interval
             # corresponding to the specified number of years.
             print(outtimeavg_dict)
             print('Averaging period (years): ', outtimeavg_dict['multiyear'][0])
 
             avg_period = float(outtimeavg_dict['multiyear'][0])
             time_resolution = 1.
-            
+
             # How many averaged data can be calculated w/ the dataset?
             nbpts = int(avg_period/time_resolution)
             years_range = years[-1] - years[0]
@@ -1510,7 +1518,7 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
                 value_avg = np.zeros([nbintervals], dtype=float)
             elif vartype == '1D:meridional':
                 value_avg = np.zeros([nbintervals, vardims[1]], dtype=float)
-            elif '2D' in vartype: 
+            elif '2D' in vartype:
                 value_avg = np.zeros([nbintervals, vardims[1], vardims[2]], dtype=float)
             # really initialize with missing values (NaNs)
             value_avg[:] = np.nan
@@ -1524,7 +1532,7 @@ def read_gridded_data_CMIP5_model(data_dir,data_file,data_vars,outtimeavg,
             # into the returned arrays
             value = value_avg
             datesYears = np.array([datetime(y,1,1,0,0) for y in years_avg])
-            
+
 
         # Dictionary of dictionaries
         # ex. data access : datadict['tas_sfc_Amon']['years'] => arrays containing years of the 'tas' data
@@ -1553,14 +1561,14 @@ def read_gridded_data_CMIP5_model_old(data_dir,data_file,data_vars,outfreq,detre
 #
 # Reads the monthly data from a CMIP5 model and return yearly averaged values
 #
-# Input: 
-#      - data_dir     : Full name of directory containing gridded 
+# Input:
+#      - data_dir     : Full name of directory containing gridded
 #                       data. (string)
 #      - data_file    : Name of file containing gridded data. (string)
 #
 #      - data_vars    : List of variable names to read. (string list)
 #
-#      - outfreq      : String indicating whether monthly or annually-averaged data 
+#      - outfreq      : String indicating whether monthly or annually-averaged data
 #                       are to be returned
 #
 #      - detrend      : Boolean to indicate if detrending is to be applied to the prior
@@ -1568,25 +1576,25 @@ def read_gridded_data_CMIP5_model_old(data_dir,data_file,data_vars,outfreq,detre
 #      - kind         : String indicating whether the prior is to be returned as
 #                       a full field or as anomalies (w.r.t. to the gridpt temporal mean)
 #
-# Output: 
-#      - datadict     : Master dictionary containing dictionaries, one for each state 
+# Output:
+#      - datadict     : Master dictionary containing dictionaries, one for each state
 #                       variable, themselves containing the following numpy arrays:
 #                       - time_yrs  : Array with years over which data is available.
 #                                     dims: [nb_years]
-#                       - lat       : Array containing the latitudes of gridded  data. 
+#                       - lat       : Array containing the latitudes of gridded  data.
 #                                     dims: [lat]
-#                       - lon       : Array containing the longitudes of gridded  data. 
+#                       - lon       : Array containing the longitudes of gridded  data.
 #                                     dims: [lon]
-#                       - value     : Array with the annually-averaged data calculated from 
+#                       - value     : Array with the annually-averaged data calculated from
 #                                     monthly data dims: [time,lat,lon]
-# 
-#  ex. data access : datadict['tas_sfc_Amon']['years'] => array containing years of the 
+#
+#  ex. data access : datadict['tas_sfc_Amon']['years'] => array containing years of the
 #                                                         'tas' data
 #                    datadict['tas_sfc_Amon']['lat']   => array of lats for 'tas' data
 #                    datadict['tas_sfc_Amon']['lon']   => array of lons for 'tas' data
 #                    datadict['tas_sfc_Amon']['value'] => array of 'tas' data values
 #
-#========================================================================================== 
+#==========================================================================================
 
     datadict = {}
 
@@ -1594,7 +1602,7 @@ def read_gridded_data_CMIP5_model_old(data_dir,data_file,data_vars,outfreq,detre
     for v in range(len(data_vars)):
         vardef = data_vars[v]
         data_file_read = data_file.replace('[vardef_template]',vardef)
-        
+
         # Check if file exists
         infile = data_dir + '/' + data_file_read
         if not os.path.isfile(infile):
@@ -1623,11 +1631,11 @@ def read_gridded_data_CMIP5_model_old(data_dir,data_file,data_vars,outfreq,detre
         vardimnames = []
         for d in vardims:
             vardimnames.append(d)
-        
+
         # put everything in lower case for homogeneity
         vardimnames = [item.lower() for item in vardimnames]
 
-        # One of the dims has to be time! 
+        # One of the dims has to be time!
         if 'time' not in vardimnames:
             print('Variable does not have *time* as a dimension! Exiting!')
             raise SystemExit()
@@ -1667,15 +1675,15 @@ def read_gridded_data_CMIP5_model_old(data_dir,data_file,data_vars,outfreq,detre
 
         # Query info on spatial coordinates ...
         # get rid of time in list in vardimnames
-        varspacecoordnames = [item for item in vardimnames if item != 'time'] 
+        varspacecoordnames = [item for item in vardimnames if item != 'time']
         nbspacecoords = len(varspacecoordnames)
 
         if nbspacecoords == 0: # data => simple time series
             vartype = '0D:time series'
             spacecoords = None
         elif ((nbspacecoords == 2) or (nbspacecoords == 3 and 'plev' in vardimnames and dictdims['plev'] == 1)): # data => 2D data
-            # get rid of plev in list        
-            varspacecoordnames = [item for item in varspacecoordnames if item != 'plev'] 
+            # get rid of plev in list
+            varspacecoordnames = [item for item in varspacecoordnames if item != 'plev']
             spacecoords = (varspacecoordnames[0],varspacecoordnames[1])
             spacevar1 = data.variables[spacecoords[0]][:]
             spacevar2 = data.variables[spacecoords[1]][:]
@@ -1724,9 +1732,9 @@ def read_gridded_data_CMIP5_model_old(data_dir,data_file,data_vars,outfreq,detre
 
                 # flip data variable
                 if indlat == 0:
-                    tmp = data_var[:,::-1,:]             
+                    tmp = data_var[:,::-1,:]
                 else:
-                    tmp = data_var[:,:,::-1] 
+                    tmp = data_var[:,:,::-1]
                 data_var = tmp
 
             # Transform longitudes from [-180,180] domain to [0,360] domain if needed
@@ -1741,14 +1749,14 @@ def read_gridded_data_CMIP5_model_old(data_dir,data_file,data_vars,outfreq,detre
             elif indlon == 1:
                 spacevar2 = varlon
                 spacevar1 = varlat
-        
+
 
         # if 2D:meridional_vertical variable
         #if vartype == '2D:meridional_vertical':
         #    value = np.zeros([ntime, len(spacevar1), len(spacevar2)], dtype=float)
         # TODO ...
 
-        
+
         # Calculate anomalies?
         # monthly climatology
         if vartype == '0D:time series':
@@ -1784,7 +1792,7 @@ def read_gridded_data_CMIP5_model_old(data_dir,data_file,data_vars,outfreq,detre
                 slope, intercept, r_value, p_value, std_err = stats.linregress(xvar,data_var_copy)
                 trend = slope*np.squeeze(xvar) + intercept
                 data_var = data_var_copy - trend
-            elif '2D' in vartype: 
+            elif '2D' in vartype:
                 data_var_copy = np.copy(data_var)
                 [xdim,dim1,dim2] = data_var.shape
                 xvar = list(range(xdim))
@@ -1809,28 +1817,28 @@ def read_gridded_data_CMIP5_model_old(data_dir,data_file,data_vars,outfreq,detre
             years.sort() # sort the list
             ntime = len(years)
             dates = np.array([datetime(y,1,1,0,0) for y in years])
-            
+
             if vartype == '0D:time series':
-                value = np.zeros([ntime], dtype=float) # vartype = '1D:time series' 
+                value = np.zeros([ntime], dtype=float) # vartype = '1D:time series'
             elif vartype == '2D:horizontal':
                 value = np.zeros([ntime, len(spacevar1), len(spacevar2)], dtype=float)
-            
+
             # Loop over years in dataset
-            for i in range(0,len(years)): 
+            for i in range(0,len(years)):
                 # find indices in time array where "years[i]" appear
                 ind = [j for j, k in enumerate(years_all) if k == years[i]]
                 time_yrs[i] = years[i]
 
                 if vartype == '0D:time series':
                     value[i] = np.nanmean(data_var[ind],axis=0)
-                elif '2D' in vartype: 
+                elif '2D' in vartype:
                     if nbdims > 3:
                         value[i,:,:] = np.nanmean(np.squeeze(data_var[ind]),axis=0)
                     else:
                         value[i,:,:] = np.nanmean(data_var[ind],axis=0)
 
             climo = np.mean(climo_month, axis=0)
-                        
+
         elif outfreq == 'monthly':
             value = data_var
             climo = climo_month
@@ -1840,7 +1848,7 @@ def read_gridded_data_CMIP5_model_old(data_dir,data_file,data_vars,outfreq,detre
 
         print(var_to_extract, ': Global: mean=', np.nanmean(value), ' , std-dev=', np.nanstd(value))
 
-        
+
         # Dictionary of dictionaries
         # ex. data access : datadict['tas_sfc_Amon']['years'] => arrays containing years of the 'tas' data
         #                   datadict['tas_sfc_Amon']['value'] => array of 'tas' data values etc ...
@@ -1866,36 +1874,36 @@ def read_gridded_data_CMIP5_model_ensemble(data_dir,data_file,data_vars):
 #==========================================================================================
 #
 # Reads the monthly data from a CMIP5 model *ensemble* and return yearly averaged values
-# for all ensemble members. 
+# for all ensemble members.
 #
-# Input: 
-#      - data_dir     : Full name of directory containing gridded 
+# Input:
+#      - data_dir     : Full name of directory containing gridded
 #                       data. (string)
 #      - data_file    : Name of file containing gridded data. (string)
 #
 #      - data_vars    : List of variable names to read. (string list)
 #
-# Output: 
-#      - datadict     : Master dictionary containing dictionaries, one for each state 
+# Output:
+#      - datadict     : Master dictionary containing dictionaries, one for each state
 #                       variable, themselves containing the following numpy arrays:
 #                       - time_yrs  : Array with years over which data is available.
 #                                     dims: [nb_years]
-#                       - lat       : Array containing the latitudes of gridded  data. 
+#                       - lat       : Array containing the latitudes of gridded  data.
 #                                     dims: [lat]
-#                       - lon       : Array containing the longitudes of gridded  data. 
+#                       - lon       : Array containing the longitudes of gridded  data.
 #                                     dims: [lon]
-#                       - value     : Array with the annually-averaged data calculated from 
+#                       - value     : Array with the annually-averaged data calculated from
 #                                     monthly data dims: [time*members,lat,lon]
 #                                     where members is the number of members in the original
 #                                     ensemble
-# 
-#  ex. data access : datadict['tas_sfc_Amon']['years'] => array containing years of the 
+#
+#  ex. data access : datadict['tas_sfc_Amon']['years'] => array containing years of the
 #                                                         'tas' data
 #                    datadict['tas_sfc_Amon']['lat']   => array of lats for 'tas' data
 #                    datadict['tas_sfc_Amon']['lon']   => array of lons for 'tas' data
 #                    datadict['tas_sfc_Amon']['value'] => array of 'tas' data values
 #
-#========================================================================================== 
+#==========================================================================================
 
     datadict = {}
 
@@ -1903,7 +1911,7 @@ def read_gridded_data_CMIP5_model_ensemble(data_dir,data_file,data_vars):
     for v in range(len(data_vars)):
         vardef = data_vars[v]
         data_file_read = data_file.replace('[vardef_template]',vardef)
-        
+
         # Check if file exists
         infile = data_dir + '/' + data_file_read
         if not os.path.isfile(infile):
@@ -1932,11 +1940,11 @@ def read_gridded_data_CMIP5_model_ensemble(data_dir,data_file,data_vars):
         vardimnames = []
         for d in vardims:
             vardimnames.append(d)
-        
+
         # put everything in lower case for homogeneity
         vardimnames = [item.lower() for item in vardimnames]
 
-        # One of the dims has to be time! 
+        # One of the dims has to be time!
         if 'time' not in vardimnames:
             print('Variable does not have *time* as a dimension! Exiting!')
             exit(1)
@@ -1970,7 +1978,7 @@ def read_gridded_data_CMIP5_model_ensemble(data_dir,data_file,data_vars):
         years     = list(set(years_all)) # 'set' is used to retain unique values in list
         years.sort() # sort the list
         time_yrs  = np.empty(len(years), dtype=int)
-        
+
         # Query about ensemble members
         if 'member' in vardimnames:
             indmem = vardimnames.index('member')
@@ -1981,17 +1989,17 @@ def read_gridded_data_CMIP5_model_ensemble(data_dir,data_file,data_vars):
         print('nbmems=', nbmems, 'indmem=', indmem)
 
         # Query info on spatial coordinates ...
-        # get rid of "time" and "member" in list        
-        varspacecoordnames = [item for item in vardimnames if item != 'time' and item != 'member'] 
+        # get rid of "time" and "member" in list
+        varspacecoordnames = [item for item in vardimnames if item != 'time' and item != 'member']
         nbspacecoords = len(varspacecoordnames)
 
         if nbspacecoords == 0: # data => simple time series
             vartype = '0D:time series'
-            value = np.empty([len(years),nbmems], dtype=float)            
+            value = np.empty([len(years),nbmems], dtype=float)
             spacecoords = None
         elif ((nbspacecoords == 2) or (nbspacecoords == 3 and 'plev' in vardimnames and dictdims['plev'] == 1)): # data => 2D data
-            # get rid of plev in list        
-            varspacecoordnames = [item for item in varspacecoordnames if item != 'plev'] 
+            # get rid of plev in list
+            varspacecoordnames = [item for item in varspacecoordnames if item != 'plev']
             spacecoords = (varspacecoordnames[0],varspacecoordnames[1])
             spacevar1 = data.variables[spacecoords[0]][:]
             spacevar2 = data.variables[spacecoords[1]][:]
@@ -2033,9 +2041,9 @@ def read_gridded_data_CMIP5_model_ensemble(data_dir,data_file,data_vars):
 
                 # flip data variable
                 if indlat == 0:
-                    tmp = data[:,:,::-1,:]             
+                    tmp = data[:,:,::-1,:]
                 else:
-                    tmp = data[:,:,:,::-1] 
+                    tmp = data[:,:,:,::-1]
                 data = tmp
 
             # Transform longitudes from [-180,180] domain to [0,360] domain if needed
@@ -2050,15 +2058,15 @@ def read_gridded_data_CMIP5_model_ensemble(data_dir,data_file,data_vars):
             elif indlon == 1:
                 spacevar2 = varlon
                 spacevar1 = varlat
-        
+
 
         # if 2D:meridional_vertical variable,
         # TO DO ...
 
 
-            
+
         # Loop over years in dataset
-        for i in range(0,len(years)): 
+        for i in range(0,len(years)):
             # find indices in time array where "years[i]" appear
             ind = [j for j, k in enumerate(years_all) if k == years[i]]
             time_yrs[i] = years[i]
@@ -2069,7 +2077,7 @@ def read_gridded_data_CMIP5_model_ensemble(data_dir,data_file,data_vars):
             # -----------------------------------------
             if vartype == '0D:time series':
                 value[i,:] = np.nanmean(data[ind],axis=0)
-            elif '2D' in vartype: 
+            elif '2D' in vartype:
                 if nbdims > 3:
                     value[i,:,:,:] = np.nanmean(np.squeeze(data[ind]),axis=0)
                 else:
@@ -2091,7 +2099,7 @@ def read_gridded_data_CMIP5_model_ensemble(data_dir,data_file,data_vars):
         for mem in range(1,nbmems):
             value_all = np.append(value_all,np.squeeze(value[:,mem,:,:]),axis=0)
 
-        
+
         # Dictionary of dictionaries
         # ex. data access : datadict['tas_sfc_Amon']['years'] => arrays containing years of the 'tas' data
         #                   datadict['tas_sfc_Amon']['value'] => array of 'tas' data values etc ...
@@ -2119,8 +2127,8 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
 # Reads the monthly data from the TraCE21ka climate model simulation and returns values of
 # specified model fields averaged over a user-specified period.
 #
-# Input: 
-#      - data_dir     : Full name of directory containing gridded 
+# Input:
+#      - data_dir     : Full name of directory containing gridded
 #                       data. (string)
 #
 #      - data_file    : Name of file containing gridded data. (string)
@@ -2131,7 +2139,7 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
 #
 #      - outtimeavg   : Dictionary indicating the type of averaging (key) and associated
 #                       information on averaging period (integer list)
-#                       if the type is "annual": list of integers indicating the months of 
+#                       if the type is "annual": list of integers indicating the months of
 #                                                the year over which to average the data.
 #                                                Requires availability of monthly data.
 #                       if type is "multiyear" : list of single integer indicating the length
@@ -2148,25 +2156,25 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
 #      - anom_ref     : Reference period (in year CE) used in calculating anomalies
 #
 #
-# Output: 
-#      - datadict     : Master dictionary containing dictionaries, one for each state 
+# Output:
+#      - datadict     : Master dictionary containing dictionaries, one for each state
 #                       variable, themselves containing the following numpy arrays:
 #                       - time_yrs  : Array with years over which data is available.
 #                                     dims: [nb_years]
-#                       - lat       : Array containing the latitudes of gridded  data. 
+#                       - lat       : Array containing the latitudes of gridded  data.
 #                                     dims: [lat]
-#                       - lon       : Array containing the longitudes of gridded  data. 
+#                       - lon       : Array containing the longitudes of gridded  data.
 #                                     dims: [lon]
-#                       - value     : Array with the annually-averaged data calculated from 
+#                       - value     : Array with the annually-averaged data calculated from
 #                                     monthly data dims: [time,lat,lon]
-# 
-#  ex. data access : datadict['tas_sfc_Amon']['years'] => array containing years of the 
+#
+#  ex. data access : datadict['tas_sfc_Amon']['years'] => array containing years of the
 #                                                         'tas' data
 #                    datadict['tas_sfc_Amon']['lat']   => array of lats for 'tas' data
 #                    datadict['tas_sfc_Amon']['lon']   => array of lons for 'tas' data
 #                    datadict['tas_sfc_Amon']['value'] => array of 'tas' data values
 #
-#========================================================================================== 
+#==========================================================================================
 
     datadict = {}
 
@@ -2175,7 +2183,7 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
 
         vardef = list(data_vars.keys())[v]
         data_file_read = data_file.replace('[vardef_template]',vardef)
-        
+
         # Check if file exists
         infile = data_dir + '/' + data_file_read
         if not os.path.isfile(infile):
@@ -2204,11 +2212,11 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
         vardimnames = []
         for d in vardims:
             vardimnames.append(d)
-        
+
         # put everything in lower case for homogeneity
         vardimnames = [item.lower() for item in vardimnames]
 
-        # One of the dims has to be time! 
+        # One of the dims has to be time!
         if 'time' not in vardimnames:
             print('Variable does not have *time* as a dimension! Exiting!')
             exit(1)
@@ -2241,11 +2249,11 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
         years     = list(set(years_all)) # 'set' is used to retain unique values in list
         years.sort() # sort the list
         time_yrs  = np.zeros(len(years), dtype=int)
-        
-                
+
+
         # Query info on spatial coordinates
         # get rid of time in list of coordinates
-        varspacecoordnames = [item for item in vardimnames if item != 'time'] 
+        varspacecoordnames = [item for item in vardimnames if item != 'time']
         nbspacecoords = len(varspacecoordnames)
 
         if nbspacecoords == 0: # data => simple time series
@@ -2255,12 +2263,12 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
         elif nbspacecoords == 1: # data => 1D data
             if 'lat' in varspacecoordnames:
                 # latitudinally-averaged  variable
-                vartype = '1D:meridional' 
+                vartype = '1D:meridional'
                 spacecoords = ('lat',)
                 spacevar1 = data.variables['lat'][:]
         elif ((nbspacecoords == 2) or (nbspacecoords == 3 and 'plev' in vardimnames and dictdims['plev'] == 1)): # data => 2D data
-            # get rid of plev in list        
-            varspacecoordnames = [item for item in varspacecoordnames if item != 'plev'] 
+            # get rid of plev in list
+            varspacecoordnames = [item for item in varspacecoordnames if item != 'plev']
             spacecoords = (varspacecoordnames[0],varspacecoordnames[1])
             spacevar1 = data.variables[spacecoords[0]][:]
             spacevar2 = data.variables[spacecoords[1]][:]
@@ -2276,12 +2284,12 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
             print('Cannot handle this variable yet! Too many dimensions... Exiting!')
             raise SystemExit(1)
 
-        
+
         # load data array
         data_var = data.variables[var_to_extract][:]
         #data_var = data.variables[var_to_extract]
         print(data_var.shape)
-        
+
         # if 2D:horizontal variable, check grid & standardize grid orientation to lat=>[-90,90] & lon=>[0,360] if needed
         if vartype == '2D:horizontal':
 
@@ -2291,7 +2299,7 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
             indlat = spacecoords.index('lat')
             indlon = spacecoords.index('lon')
             print('indlat=', indlat, ' indlon=', indlon)
-            
+
             if indlon == 0:
                 vlon = spacevar1
                 vlat = spacevar2
@@ -2314,7 +2322,7 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
 
             varlatdim = len(varlat.shape)
             varlondim = len(varlon.shape)
-            
+
             # Check if latitudes are defined in the [-90,90] domain
             # and if longitudes are in the [0,360] domain
             fliplat = None
@@ -2354,7 +2362,7 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
             indneg = np.where(varlon < 0)
             if len(indneg) > 0: # if non-empty
                 varlon[indneg] = 360.0 + varlon[indneg]
-                
+
             # Back into right arrays
             if indlon == 0:
                 spacevar1 = varlon
@@ -2362,11 +2370,11 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
             elif indlon == 1:
                 spacevar2 = varlon
                 spacevar1 = varlat
-        
+
 
         # if 2D:meridional_vertical variable
         elif vartype == '2D:meridional_vertical':
-            
+
             vardims = data_var.shape
 
             # which dim is lat and which is lev?
@@ -2407,7 +2415,7 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
             if not monotone_increase and not monotone_decrease:
                 # funky grid
                 fliplat = False
-                
+
             if fliplat is None:
                 if varlatdim == 2: # 2D lat array
                     if varlat[0,0] > varlat[-1,0]: # lat not as [-90,90] => array upside-down
@@ -2439,16 +2447,16 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
             elif indlev == 1:
                 spacevar2 = varlev
                 spacevar1 = varlat
-            
+
 
         # if 1D:meridional (latitudinally-averaged) variable
         elif vartype == '1D:meridional':
             vardims = data_var.shape
-            
+
             # which dim is lat?
             indlat = spacecoords.index('lat')
             print('indlat=', indlat)
-            
+
             # Check if latitudes are defined in the [-90,90] domain
             fliplat = None
             # check for monotonically increasing or decreasing values
@@ -2467,14 +2475,14 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
                 tmp = data_var[:,::-1]
                 data_var = tmp
 
-                
+
         # ====== other data processing ======
-        
+
         # --------------------
         # Calculate anomalies?
         # --------------------
         kind = data_vars[vardef]
-        
+
         if not kind or kind == 'anom':
             print('Anomalies provided as the prior: Removing the temporal mean (for every gridpoint)...')
 
@@ -2501,8 +2509,8 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
 
                 # clearing temporary arrays
                 del fracyr, indyrneg, indyrpos
-                
-                # indices corresponding to reference period   
+
+                # indices corresponding to reference period
                 if anom_ref is not None:
                     indsyrref = [j for j,v in enumerate(dates_years) if ((v >= anom_ref[0]) and (v <= anom_ref[1]))]
                     # overlap?
@@ -2510,7 +2518,7 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
                         raise SystemExit('ERROR in anomaly calculation: '
                                          ' No overlap between prior simulation'
                                          ' and specified reference period. Exiting!')
-                    
+
                 else:
                     # no reference period specified: indices over entire length of the simulation
                     indsyrref = [j for j,v in enumerate(dates_years)]
@@ -2525,10 +2533,10 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
 
                 climo = climo_month
 
-                
+
             else:
                 # other than monthly data
-                # indices corresponding to reference period                
+                # indices corresponding to reference period
                 if anom_ref is not None:
                     indsyrref = [j for j,v in enumerate(dates) if ((v >= anom_ref[0]) and (v <= anom_ref[1]))]
                     # overlap?
@@ -2544,13 +2552,13 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
 
                 # calculate anomalies
                 data_var = (data_var - climo)
-                
 
 
-                
-            exit(1) # RT ... ... ... 
 
-                
+
+            exit(1) # RT ... ... ...
+
+
 
         elif kind == 'full':
             print('Full field provided as the prior')
@@ -2561,9 +2569,9 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
             raise SystemExit('ERROR in the specification of type of prior.'
                              ' Should be "full" or "anom"! Exiting...')
 
-        print(var_to_extract, ': Global: mean=', np.nanmean(data_var), ' , std-dev=', np.nanstd(data_var))        
+        print(var_to_extract, ': Global: mean=', np.nanmean(data_var), ' , std-dev=', np.nanstd(data_var))
 
-        
+
         # --------------------------
         # Possibly detrend the prior
         # --------------------------
@@ -2587,7 +2595,7 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
                         data_var[:,i] = data_var_copy[:,i] - trend
                     else:
                         data_var[:,i] = np.nan
-            elif '2D' in vartype: 
+            elif '2D' in vartype:
                 data_var_copy = np.copy(data_var)
                 [xdim,dim1,dim2] = data_var.shape
                 xvar = list(range(xdim))
@@ -2600,19 +2608,19 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
                             data_var[:,i,j] = data_var_copy[:,i,j] - trend
                         else:
                             data_var[:,i,j] = np.nan
-                            
+
             print(var_to_extract, ': Global(detrended): mean=', np.nanmean(data_var), ' , std-dev=', np.nanstd(data_var))
 
 
         # ------------------------------------------------------------------------
-        # Average the data over user-specified period. Two configurations: 
+        # Average the data over user-specified period. Two configurations:
         # 1) Annual: Averaging over the monthly sequence specified in outtimeavg
         #    One output data per year is provided as output, but averaged over
         #    specified sequence of months.
         #    Requires availability of monthly data.
         #
-        # 2) multiyear: Averaging available data over a time interval 
-        #    corresponding to the specified number of years. 
+        # 2) multiyear: Averaging available data over a time interval
+        #    corresponding to the specified number of years.
         #    Requires availability of data with a resolution of at least the
         #    averaging interval.
         # ------------------------------------------------------------------------
@@ -2624,29 +2632,29 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
             if time_resolution == monthly:
 
                 year_current = [m for m in outtimeavg['annual'] if m>0 and m<=12]
-                year_before  = [abs(m) for m in outtimeavg['annual'] if m < 0]        
+                year_before  = [abs(m) for m in outtimeavg['annual'] if m < 0]
                 year_follow  = [m-12 for m in outtimeavg['annual'] if m > 12]
-        
+
                 avgmonths = year_before + year_current + year_follow
                 indsclimo = sorted([item-1 for item in avgmonths])
-        
+
                 # List years available in dataset and sort
                 years_all = [d for d in dates_years]
                 years     = list(set(years_all)) # 'set' used to retain unique values in list
                 years.sort() # sort the list
                 ntime = len(years)
                 datesYears = years
-        
+
                 if vartype == '0D:time series':
-                    value = np.zeros([ntime], dtype=float) # vartype = '0D:time series' 
+                    value = np.zeros([ntime], dtype=float) # vartype = '0D:time series'
                 elif vartype == '1D:meridional':
                     value = np.zeros([ntime, vardims[1]], dtype=float)
                 elif '2D' in vartype:
                     value = np.zeros([ntime, vardims[1], vardims[2]], dtype=float)
                 # really initialize with missing values (NaNs)
-                value[:] = np.nan 
-                
-                # Loop over years in dataset (less memory intensive...otherwise need to deal with large arrays) 
+                value[:] = np.nan
+
+                # Loop over years in dataset (less memory intensive...otherwise need to deal with large arrays)
                 for i in range(ntime):
                     tindsyr   = [k for k,d in enumerate(dates_years) if d == years[i]    and dates_months[k] in year_current]
                     tindsyrm1 = [k for k,d in enumerate(dates_years) if d == years[i]-1. and dates_months[k] in year_before]
@@ -2657,14 +2665,14 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
                         value[i] = np.nanmean(data_var[indsyr],axis=0)
                     elif vartype == '1D:meridional':
                         value[i,:] = np.nanmean(data_var[indsyr],axis=0)
-                    elif '2D' in vartype: 
+                    elif '2D' in vartype:
                         if nbdims > 3:
                             value[i,:,:] = np.nanmean(np.squeeze(data_var[indsyr]),axis=0)
                         else:
                             value[i,:,:] = np.nanmean(data_var[indsyr],axis=0)
-                        
+
                 print(var_to_extract, ': Global(time-averaged): mean=', np.nanmean(value), ' , std-dev=', np.nanstd(value))
-                    
+
                 climo = np.mean(climo_month[indsclimo], axis=0)
 
             else:
@@ -2672,7 +2680,7 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
                 print('       Here we have data with temporal resolution of ', time_resolution, 'years')
                 print('       Exiting!')
                 raise SystemExit()
-                
+
         elif list(outtimeavg.keys())[0] == 'multiyear':
             print('Averaging period (years):', outtimeavg['multiyear'])
 
@@ -2698,7 +2706,7 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
                 value = np.zeros([nbintervals], dtype=float)
             elif vartype == '1D:meridional':
                 value = np.zeros([nbintervals, vardims[1]], dtype=float)
-            elif '2D' in vartype: 
+            elif '2D' in vartype:
                 value = np.zeros([nbintervals, vardims[1], vardims[2]])
             # really initialize with missing values (NaNs)
             value[:] = np.nan
@@ -2709,7 +2717,7 @@ def read_gridded_data_TraCE21ka(data_dir,data_file,data_vars,outtimeavg,detrend=
                 datesYears[i] = np.mean(years[edgel:edger])
                 value[i] = np.nanmean(data_var[edgel:edger], axis=0)
 
-        
+
         # Dictionary of dictionaries
         # ex. data access : datadict['tas_sfc_Amon']['years'] => arrays containing years of the 'tas' data
         #                   datadict['tas_sfc_Amon']['value'] => array of 'tas' data values etc ...
@@ -2739,8 +2747,8 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
 # Reads the data from the cGENIE climate model simulation and returns values of
 # specified model fields averaged over a user-specified period.
 #
-# Input: 
-#      - data_dir     : Full name of directory containing gridded 
+# Input:
+#      - data_dir     : Full name of directory containing gridded
 #                       data. (string)
 #
 #      - data_file    : Name of file containing gridded data. (string)
@@ -2751,7 +2759,7 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
 #
 #      - outtimeavg   : Dictionary indicating the type of averaging (key) and associated
 #                       information on averaging period (integer list)
-#                       if the type is "annual": list of integers indicating the months of 
+#                       if the type is "annual": list of integers indicating the months of
 #                                                the year over which to average the data.
 #                                                Requires availability of monthly data.
 #                       if type is "multiyear" : list of single integer indicating the length
@@ -2768,25 +2776,25 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
 #      - anom_ref     : Reference period (in year CE) used in calculating anomalies
 #
 #
-# Output: 
-#      - datadict     : Master dictionary containing dictionaries, one for each state 
+# Output:
+#      - datadict     : Master dictionary containing dictionaries, one for each state
 #                       variable, themselves containing the following numpy arrays:
 #                       - time_yrs  : Array with years over which data is available.
 #                                     dims: [nb_years]
-#                       - lat       : Array containing the latitudes of gridded  data. 
+#                       - lat       : Array containing the latitudes of gridded  data.
 #                                     dims: [lat]
-#                       - lon       : Array containing the longitudes of gridded  data. 
+#                       - lon       : Array containing the longitudes of gridded  data.
 #                                     dims: [lon]
-#                       - value     : Array with the annually-averaged data calculated from 
+#                       - value     : Array with the annually-averaged data calculated from
 #                                     monthly data dims: [time,lat,lon]
-# 
-#  ex. data access : datadict['tas_sfc_Amon']['years'] => array containing years of the 
+#
+#  ex. data access : datadict['tas_sfc_Amon']['years'] => array containing years of the
 #                                                         'tas' data
 #                    datadict['tas_sfc_Amon']['lat']   => array of lats for 'tas' data
 #                    datadict['tas_sfc_Amon']['lon']   => array of lons for 'tas' data
 #                    datadict['tas_sfc_Amon']['value'] => array of 'tas' data values
 #
-#========================================================================================== 
+#==========================================================================================
 
     datadict = {}
 
@@ -2795,7 +2803,7 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
 
         vardef = list(data_vars.keys())[v]
         data_file_read = data_file.replace('[vardef_template]',vardef)
-        
+
         # Check if file exists
         infile = data_dir + '/' + data_file_read
         if not os.path.isfile(infile):
@@ -2824,11 +2832,11 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
         vardimnames = []
         for d in vardims:
             vardimnames.append(d)
-        
+
         # put everything in lower case for homogeneity
         vardimnames = [item.lower() for item in vardimnames]
 
-        # One of the dims has to be time! 
+        # One of the dims has to be time!
         if 'time' not in vardimnames:
             print('Variable does not have *time* as a dimension! Exiting!')
             exit(1)
@@ -2839,7 +2847,7 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
         # keep time in "model years"
         dates = time[:]
         time_yrs_list = dates.tolist()
-        
+
         time_diff = np.diff(time_yrs_list)
         time_diff_mean = np.mean(time_diff)
         monthly = 1./12.
@@ -2862,10 +2870,10 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
         years.sort() # sort the list
         time_yrs  = np.zeros(len(years), dtype=int)
 
-                
+
         # Query info on spatial coordinates ...
-        # get rid of time in list        
-        varspacecoordnames = [item for item in vardimnames if item != 'time'] 
+        # get rid of time in list
+        varspacecoordnames = [item for item in vardimnames if item != 'time']
         nbspacecoords = len(varspacecoordnames)
         #print vardimnames, nbspacecoords, dictdims
 
@@ -2876,12 +2884,12 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
         elif nbspacecoords == 1: # data => 1D data
             if 'lat' in varspacecoordnames:
                 # latitudinally-averaged  variable
-                vartype = '1D:meridional' 
+                vartype = '1D:meridional'
                 spacecoords = ('lat',)
                 spacevar1 = data.variables['lat'][:]
         elif ((nbspacecoords == 2) or (nbspacecoords == 3 and 'plev' in vardimnames and dictdims['plev'] == 1)): # data => 2D data
-            # get rid of plev in list        
-            varspacecoordnames = [item for item in varspacecoordnames if item != 'plev'] 
+            # get rid of plev in list
+            varspacecoordnames = [item for item in varspacecoordnames if item != 'plev']
             spacecoords = (varspacecoordnames[0],varspacecoordnames[1])
             spacevar1 = data.variables[spacecoords[0]][:]
             spacevar2 = data.variables[spacecoords[1]][:]
@@ -2900,7 +2908,7 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
         # data array
         data_var = data.variables[var_to_extract][:]
         print(data_var.shape)
-        
+
         # if 2D:horizontal variable, check grid & standardize grid orientation to lat=>[-90,90] & lon=>[0,360] if needed
         if vartype == '2D:horizontal':
 
@@ -2910,7 +2918,7 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
             indlat = spacecoords.index('lat')
             indlon = spacecoords.index('lon')
             print('indlat=', indlat, ' indlon=', indlon)
-            
+
             if indlon == 0:
                 vlon = spacevar1
                 vlat = spacevar2
@@ -2933,7 +2941,7 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
 
             varlatdim = len(varlat.shape)
             varlondim = len(varlon.shape)
-            
+
             # Check if latitudes are defined in the [-90,90] domain
             # and if longitudes are in the [0,360] domain
             fliplat = None
@@ -2981,7 +2989,7 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
             # do same for data array
             tmp = np.roll(data_var,nbneg,axis=2)
             data_var = tmp
-                
+
             # negative lon values to positive
             indneg = np.where(varlon < 0)
             if len(indneg) > 0: # if non-empty
@@ -2995,11 +3003,11 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
             elif indlon == 1:
                 spacevar2 = varlon
                 spacevar1 = varlat
-        
+
 
         # if 2D:meridional_vertical variable
         elif vartype == '2D:meridional_vertical':
-            
+
             vardims = data_var.shape
 
             # which dim is lat and which is lev?
@@ -3040,7 +3048,7 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
             if not monotone_increase and not monotone_decrease:
                 # funky grid
                 fliplat = False
-                
+
             if fliplat is None:
                 if varlatdim == 2: # 2D lat array
                     if varlat[0,0] > varlat[-1,0]: # lat not as [-90,90] => array upside-down
@@ -3072,16 +3080,16 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
             elif indlev == 1:
                 spacevar2 = varlev
                 spacevar1 = varlat
-            
+
 
         # if 1D:meridional (latitudinally-averaged) variable
         elif vartype == '1D:meridional':
             vardims = data_var.shape
-            
+
             # which dim is lat?
             indlat = spacecoords.index('lat')
             print('indlat=', indlat)
-            
+
             # Check if latitudes are defined in the [-90,90] domain
             fliplat = None
             # check for monotonically increasing or decreasing values
@@ -3100,14 +3108,14 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
                 tmp = data_var[:,::-1]
                 data_var = tmp
 
-                
+
         # ====== other data processing ======
-        
+
         # --------------------
         # Calculate anomalies?
         # --------------------
         kind = data_vars[vardef]
-        
+
         if not kind or kind == 'anom':
             print('Anomalies provided as the prior: Removing the temporal mean (for every gridpoint)...')
 
@@ -3120,13 +3128,13 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
                     climo_month = np.zeros([12, vardims[1]], dtype=float)
                 elif '2D' in vartype:
                     climo_month = np.zeros([12, vardims[1], vardims[2]], dtype=float)
-                
+
                 dates_years = np.array([math.modf(item)[1] for item in dates])
                 tmp = np.array([abs(math.modf(item)[0]) for item in dates])
                 dates_months = np.rint((tmp/monthly)+1.)
 
-                # indices corresponding to reference period   
-                if anom_ref:                    
+                # indices corresponding to reference period
+                if anom_ref:
                     indsyr = [j for j,v in enumerate(dates_years) if ((v >= anom_ref[0]) and (v <= anom_ref[1]))]
                     # overlap?
                     if len(indsyr) == 0:
@@ -3145,7 +3153,7 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
                 climo = climo_month
             else:
                 # other than monthly data
-                # indices corresponding to reference period                
+                # indices corresponding to reference period
                 if anom_ref:
                     indsyr = [j for j,v in enumerate(dates) if ((v >= anom_ref[0]) and (v <= anom_ref[1]))]
                     # overlap?
@@ -3159,7 +3167,7 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
 
                 # calculate anomalies
                 data_var = (data_var - climo)
-                
+
         elif kind == 'full':
             print('Full field provided as the prior')
             # Calculating climo nevertheless. Needed as output.
@@ -3168,9 +3176,9 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
         else:
             raise SystemExit('ERROR in the specification of type of prior. Should be "full" or "anom"! Exiting...')
 
-        print(var_to_extract, ': Global: mean=', np.nanmean(data_var), ' , std-dev=', np.nanstd(data_var))        
+        print(var_to_extract, ': Global: mean=', np.nanmean(data_var), ' , std-dev=', np.nanstd(data_var))
 
-        
+
         # --------------------------
         # Possibly detrend the prior
         # --------------------------
@@ -3194,7 +3202,7 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
                         data_var[:,i] = data_var_copy[:,i] - trend
                     else:
                         data_var[:,i] = np.nan
-            elif '2D' in vartype: 
+            elif '2D' in vartype:
                 data_var_copy = np.copy(data_var)
                 [xdim,dim1,dim2] = data_var.shape
                 xvar = list(range(xdim))
@@ -3207,19 +3215,19 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
                             data_var[:,i,j] = data_var_copy[:,i,j] - trend
                         else:
                             data_var[:,i,j] = np.nan
-                            
+
             print(var_to_extract, ': Global(detrended): mean=', np.nanmean(data_var), ' , std-dev=', np.nanstd(data_var))
 
 
         # ------------------------------------------------------------------------
-        # Average the data over user-specified period. Two configurations: 
+        # Average the data over user-specified period. Two configurations:
         # 1) Annual: Averaging over the monthly sequence specified in outtimeavg
         #    One output data per year is provided as output, but averaged over
         #    specified sequence of months.
         #    Requires availability of monthly data.
         #
-        # 2) multiyear: Averaging available data over a time interval 
-        #    corresponding to the specified number of years. 
+        # 2) multiyear: Averaging available data over a time interval
+        #    corresponding to the specified number of years.
         #    Requires availability of data with a resolution of at least the
         #    averaging interval.
         # ------------------------------------------------------------------------
@@ -3231,29 +3239,29 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
             if time_resolution == monthly:
 
                 year_current = [m for m in outtimeavg['annual'] if m>0 and m<=12]
-                year_before  = [abs(m) for m in outtimeavg['annual'] if m < 0]        
+                year_before  = [abs(m) for m in outtimeavg['annual'] if m < 0]
                 year_follow  = [m-12 for m in outtimeavg['annual'] if m > 12]
-        
+
                 avgmonths = year_before + year_current + year_follow
                 indsclimo = sorted([item-1 for item in avgmonths])
-        
+
                 # List years available in dataset and sort
                 years_all = [d for d in dates_years]
                 years     = list(set(years_all)) # 'set' used to retain unique values in list
                 years.sort() # sort the list
                 ntime = len(years)
                 datesYears = years
-        
+
                 if vartype == '0D:time series':
-                    value = np.zeros([ntime], dtype=float) # vartype = '0D:time series' 
+                    value = np.zeros([ntime], dtype=float) # vartype = '0D:time series'
                 elif vartype == '1D:meridional':
                     value = np.zeros([ntime, vardims[1]], dtype=float)
                 elif '2D' in vartype:
                     value = np.zeros([ntime, vardims[1], vardims[2]], dtype=float)
                 # really initialize with missing values (NaNs)
-                value[:] = np.nan 
-                
-                # Loop over years in dataset (less memory intensive...otherwise need to deal with large arrays) 
+                value[:] = np.nan
+
+                # Loop over years in dataset (less memory intensive...otherwise need to deal with large arrays)
                 for i in range(ntime):
                     tindsyr   = [k for k,d in enumerate(dates_years) if d == years[i]    and dates_months[k] in year_current]
                     tindsyrm1 = [k for k,d in enumerate(dates_years) if d == years[i]-1. and dates_months[k] in year_before]
@@ -3264,14 +3272,14 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
                         value[i] = np.nanmean(data_var[indsyr],axis=0)
                     elif vartype == '1D:meridional':
                         value[i,:] = np.nanmean(data_var[indsyr],axis=0)
-                    elif '2D' in vartype: 
+                    elif '2D' in vartype:
                         if nbdims > 3:
                             value[i,:,:] = np.nanmean(np.squeeze(data_var[indsyr]),axis=0)
                         else:
                             value[i,:,:] = np.nanmean(data_var[indsyr],axis=0)
-                        
+
                 print(var_to_extract, ': Global(time-averaged): mean=', np.nanmean(value), ' , std-dev=', np.nanstd(value))
-                    
+
                 climo = np.mean(climo_month[indsclimo], axis=0)
 
             else:
@@ -3279,7 +3287,7 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
                 print('       Here we have data with temporal resolution of ', time_resolution, 'years')
                 print('       Exiting!')
                 raise SystemExit()
-                
+
         elif list(outtimeavg.keys())[0] == 'multiyear':
             print('Averaging period (years):', outtimeavg['multiyear'])
 
@@ -3305,7 +3313,7 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
                 value = np.zeros([nbintervals], dtype=float)
             elif vartype == '1D:meridional':
                 value = np.zeros([nbintervals, vardims[1]], dtype=float)
-            elif '2D' in vartype: 
+            elif '2D' in vartype:
                 #value = np.zeros([nbintervals, vardims[1], vardims[2]], dtype=float)
                 value = np.zeros([nbintervals, vardims[1], vardims[2]])
             # really initialize with missing values (NaNs)
@@ -3317,7 +3325,7 @@ def read_gridded_data_cGENIE_model(data_dir,data_file,data_vars,outtimeavg,detre
                 datesYears[i] = np.mean(years[edgel:edger])
                 value[i] = np.nanmean(data_var[edgel:edger], axis=0)
 
-        
+
         # Dictionary of dictionaries
         # ex. data access : datadict['tas_sfc_Amon']['years'] => arrays containing years of the 'tas' data
         #                   datadict['tas_sfc_Amon']['value'] => array of 'tas' data values etc ...

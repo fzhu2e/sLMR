@@ -175,6 +175,7 @@ def get_prior(filepath, datatype, cfg, anom_reference_period=(1951, 1980), verbo
 
     return datadict
 
+
 def get_nc_vars(filepath, varnames, useLib='netCDF4', annualize=False):
     ''' Get variables from given ncfile
     '''
@@ -595,8 +596,7 @@ def est_vslite_params(proxy_manager, tas_filepath, pr_filepath,
     pr = get_nc_vars(pr_filepath, ['pre'])
 
     if lat_lon_idx_path is None:
-        import p2k
-        lat_ind, lon_ind = p2k.find_closest_loc(lat_grid, lon_grid, lat_obs, lon_obs, mode='latlon')
+        lat_ind, lon_ind = find_closest_loc(lat_grid, lon_grid, lat_obs, lon_obs, mode='latlon')
     else:
         with open(lat_lon_idx_path, 'rb') as f:
             lat_ind, lon_ind = pickle.load(f)
@@ -1039,6 +1039,75 @@ def regrid_sphere(nlat, nlon, Nens, X, ntrunc):
         X_new[:,k] = vectmp
 
     return X_new,lat_new,lon_new
+
+
+def find_closest_loc(lat, lon, target_lat, target_lon, mode='latlon', verbose=False):
+    ''' Find the closet model sites (lat, lon) based on the given target (lat, lon) list
+
+    Args:
+        lat, lon (array): the model latitude and longitude arrays
+        target_lat, target_lon (array): the target latitude and longitude arrays
+        mode (str):
+        + latlon: the model lat/lon is a 1-D array
+        + mesh: the model lat/lon is a 2-D array
+
+    Returns:
+        lat_ind, lon_ind (array): the indices of the found closest model sites
+
+    '''
+
+    if mode is 'latlon':
+        # model locations
+        mesh = np.meshgrid(lon, lat)
+
+        list_of_grids = list(zip(*(grid.flat for grid in mesh)))
+        model_lon, model_lat = zip(*list_of_grids)
+
+    elif mode is 'mesh':
+        model_lat = lat.flatten()
+        model_lon = lon.flatten()
+
+    elif mode is 'list':
+        model_lat = lat
+        model_lon = lon
+
+    model_locations = []
+
+    for m_lat, m_lon in zip(model_lat, model_lon):
+        model_locations.append((m_lat, m_lon))
+
+    # target locations
+    if np.size(target_lat) > 1:
+        #  target_locations_dup = list(zip(target_lat, target_lon))
+        #  target_locations = list(set(target_locations_dup))  # remove duplicated locations
+        target_locations = list(zip(target_lat, target_lon))
+        n_loc = np.shape(target_locations)[0]
+    else:
+        target_locations = [(target_lat, target_lon)]
+        n_loc = 1
+
+    lat_ind = np.zeros(n_loc, dtype=int)
+    lon_ind = np.zeros(n_loc, dtype=int)
+
+    # get the closest grid
+    for i, target_loc in (enumerate(tqdm(target_locations)) if verbose else enumerate(target_locations)):
+        X = target_loc
+        Y = model_locations
+        distance, index = spatial.KDTree(Y).query(X)
+        closest = Y[index]
+        nlon = np.shape(lon)[-1]
+
+        lat_ind[i] = index // nlon
+        lon_ind[i] = index % nlon
+
+        #  if np.size(target_lat) > 1:
+            #  df_ind[i] = target_locations_dup.index(target_loc)
+
+    if np.size(target_lat) > 1:
+        #  return lat_ind, lon_ind, df_ind
+        return lat_ind, lon_ind
+    else:
+        return lat_ind[0], lon_ind[0]
 
 
 def generate_latlon(nlats, nlons, include_endpts=False,
@@ -1589,3 +1658,4 @@ def Kalman_ESRF(cfg, vY, vR, vYe, Xb_in,
         print('-----------------------------------------------------')
 
     return xam, Xap, Xa
+
